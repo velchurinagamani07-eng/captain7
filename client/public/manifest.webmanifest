@@ -1,0 +1,24 @@
+{
+  "name": "Captain 7 Eat & Play",
+  "short_name": "Captain 7",
+  "description": "Captain 7 food ordering, cricket booking, party packages, and delivery dashboard.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0A0A0A",
+  "theme_color": "#0A0A0A",
+  "icons": [
+    {
+      "src": "/logo.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logo.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

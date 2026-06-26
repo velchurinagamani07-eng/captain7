@@ -1,0 +1,24 @@
+{
+  "name": "captain-7-eat-play-platform",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev": "npm --prefix client run dev",
+    "server:dev": "npm --prefix server run dev",
+    "server:start": "npm --prefix server start",
+    "build": "npm --prefix client run build",
+    "preview": "npm --prefix client run preview",
+    "seed:menu": "node server/seedMenu.js",
+    "seed:slots": "node server/seedSlots.js",
+    "set-admin": "node server/setAdminUser.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^13.0.2",
+    "razorpay": "^2.9.5"
+  }
+}

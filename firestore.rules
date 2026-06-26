@@ -1,0 +1,147 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin";
+    }
+
+    function isOwner(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function isWorker() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "worker";
+    }
+
+    match /{document=**} {
+      allow read, write: if isAdmin();
+    }
+
+    match /users/{uid} {
+      allow read: if isAdmin() || isOwner(uid);
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /slots/{slotId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /blockedDates/{dateId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /bookings/{bookingId} {
+      allow create: if true;
+      allow read: if isAdmin() || (signedIn() && resource.data.userId == request.auth.uid);
+      allow update: if isAdmin() || (signedIn() && resource.data.userId == request.auth.uid);
+      allow delete: if false;
+    }
+
+    match /bookingLocks/{lockId} {
+      allow create, read: if true;
+      allow update, delete: if false;
+    }
+
+    match /menuItems/{itemId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /orders/{orderId} {
+      allow create: if true;
+      allow read: if isAdmin() || (isWorker() && resource.data.assignedTo == request.auth.uid);
+      allow update: if isAdmin() || (isWorker() && resource.data.assignedTo == request.auth.uid);
+      allow delete: if isAdmin();
+    }
+
+    match /foodOrders/{orderId} {
+      allow create: if true;
+      allow read: if isAdmin() || (signedIn() && resource.data.userId == request.auth.uid);
+      allow update: if isAdmin() || (signedIn() && resource.data.userId == request.auth.uid);
+      allow delete: if isAdmin();
+    }
+
+    match /partyPackages/{pkgId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /partyBookings/{id} {
+      allow create: if true;
+      allow read, update: if isAdmin() || (signedIn() && resource.data.userId == request.auth.uid);
+      allow delete: if false;
+    }
+
+    match /gallery/{imgId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /heroSlides/{pageName}/slides/{slideId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /banners/{bannerId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /coupons/{couponId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /userCoupons/{userId}/issued/{couponId} {
+      allow read, create, update: if isAdmin() || isOwner(userId);
+      allow delete: if false;
+    }
+
+    match /reviews/{reviewId} {
+      allow read: if true;
+      allow create, update, delete: if isAdmin() || (signedIn() && !resource.exists());
+    }
+
+    match /notifications/{notifId} {
+      allow create: if true;
+      allow read, update: if isAdmin() || (isWorker() && resource.data.targetUid == request.auth.uid);
+      allow delete: if isAdmin();
+    }
+
+    match /pageViews/{id} {
+      allow create: if true;
+      allow read, write: if isAdmin();
+    }
+
+    match /timeSlots/{slotId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /contactLeads/{id} {
+      allow create: if true;
+      allow read, update, delete: if isAdmin();
+    }
+
+    match /franchiseLeads/{id} {
+      allow create: if true;
+      allow read, update, delete: if isAdmin();
+    }
+
+    match /settings/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+  }
+}
