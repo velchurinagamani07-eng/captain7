@@ -17,7 +17,7 @@ const IMGBB_KEY = import.meta.env.VITE_IMGBB_API_KEY;
 
 export async function uploadToImgBB(file, onProgress, apiKey = IMGBB_KEY) {
   if (!apiKey) throw new Error("ImgBB API key is required");
-  const { file: compressed } = await compressImage(file, 300, onProgress);
+  const { file: compressed } = await compressImage(file, 500, onProgress);
   const form = new FormData();
   form.append("image", compressed);
   const res = await fetch(`https://api.imgbb.com/1/upload?key=${apiKey}`, {

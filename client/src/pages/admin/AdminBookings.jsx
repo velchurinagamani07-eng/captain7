@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { Plus, Search, Edit3, Trash2, Calendar, Phone, User, Clock, DollarSign, FileText } from "lucide-react";
 import { doc, setDoc, serverTimestamp, updateDoc, deleteDoc } from "firebase/firestore";
 import { db } from "../../firebase.js";
-import { useCollection } from "../../hooks/useFirestore.js";
+import { useCollection, useDocument } from "../../hooks/useFirestore.js";
 import { Modal } from "../../components/ui/Modal.jsx";
 import { Badge } from "../../components/ui/Badge.jsx";
 import { Button } from "../../components/ui/Button.jsx";
@@ -40,6 +40,53 @@ export default function AdminBookings() {
   // Firestore collections
   const { data: bookings, loading: loadingBookings } = useCollection("bookings", [], { live: true });
   const { data: timeSlots, loading: loadingSlots } = useCollection("timeSlots", [], { live: true });
+  const { data: exportSettings, loading: loadingExportSettings } = useDocument("settings/bookingExports", { lastExportedCount: 0 });
+
+  useEffect(() => {
+    if (loadingBookings || loadingExportSettings || !bookings || bookings.length === 0) return;
+    
+    const count = bookings.length;
+    const threshold = 60;
+    const multiple = Math.floor(count / threshold) * threshold;
+    
+    const lastExported = exportSettings?.lastExportedCount || 0;
+    
+    if (multiple > lastExported) {
+      try {
+        const headers = ["Booking ID", "Customer Name", "Customer Phone", "Date", "Time Slot", "Players", "Add-ons", "Amount", "Payment Status", "Status", "Created At"];
+        const csvRows = bookings.map(b => [
+          b.id,
+          b.userName || "",
+          b.userPhone || "",
+          b.date || "",
+          `${b.startTime || ""} - ${b.endTime || ""}`,
+          b.players || "",
+          (b.addOns || []).join(", "),
+          b.amount || 0,
+          b.paymentStatus || "",
+          b.status || "",
+          b.createdAt?.seconds ? new Date(b.createdAt.seconds * 1000).toISOString() : ""
+        ]);
+        
+        const csvContent = "data:text/csv;charset=utf-8," 
+          + [headers.join(","), ...csvRows.map(e => e.map(val => `"${String(val).replace(/"/g, '""')}"`).join(","))].join("\n");
+          
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", `Captain7_Bookings_Export_${multiple}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        setDoc(doc(db, "settings", "bookingExports"), { lastExportedCount: multiple }, { merge: true }).catch(console.error);
+        
+        showToast(`All data is stored — exported locally (${multiple} bookings)`);
+      } catch (err) {
+        console.error("Export failed:", err);
+      }
+    }
+  }, [bookings, loadingBookings, exportSettings, loadingExportSettings]);
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(""), 3000); };
 
@@ -174,6 +221,20 @@ export default function AdminBookings() {
     }
   };
 
+  const handleConfirmPayment = async (id) => {
+    if (!confirm("Confirm that payment has been received manually for this booking?")) return;
+    try {
+      await updateDoc(doc(db, "bookings", id), {
+        paymentStatus: "paid",
+        status: "confirmed",
+        updatedAt: serverTimestamp()
+      });
+      showToast("Booking marked as paid and confirmed.");
+    } catch (err) {
+      showToast("Failed to confirm payment.");
+    }
+  };
+
   return (
     <div>
       {/* Header */}
@@ -266,6 +327,15 @@ export default function AdminBookings() {
                             className="rounded-full border border-red-400/30 px-3 py-1.5 text-xs text-red-200 hover:border-red-400"
                           >
                             Refund
+                          </button>
+                        )}
+                        {b.paymentStatus === "pending" && (
+                          <button
+                            type="button"
+                            onClick={() => handleConfirmPayment(b.id)}
+                            className="rounded-full border border-emerald-500/30 px-3 py-1.5 text-xs text-emerald-300 hover:border-emerald-500"
+                          >
+                            Confirm Payment
                           </button>
                         )}
                         <button

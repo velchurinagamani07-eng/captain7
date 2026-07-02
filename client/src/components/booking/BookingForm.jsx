@@ -14,6 +14,8 @@ import { useAuth } from "../../hooks/useAuth.js";
 import { createBookingWithTransaction } from "../../utils/bookingTransaction.js";
 import { openOwnerWhatsApp } from "../../utils/whatsapp.js";
 import { hasFirebaseConfig } from "../../firebase/config.js";
+import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { db } from "../../firebase.js";
 
 const schema = yup.object({
   name: yup.string().required("Name is required"),
@@ -44,6 +46,7 @@ export function BookingForm({ selectedDate, selectedSlot, onConfirmed }) {
 
   const { data: apiKeys } = useSettingDoc("apiKeys", {});
   const googleMapsApiKey = apiKeys?.googleMapsApiKey || "";
+  const { data: paymentLinks } = useSettingDoc("paymentLinks", {});
 
   const handleAutoDetect = () => {
     if (!navigator.geolocation) {
@@ -129,6 +132,40 @@ export function BookingForm({ selectedDate, selectedSlot, onConfirmed }) {
     }
     setSubmitting(true);
     try {
+      if (paymentLinks?.cricketBookingUrl) {
+        const bookingId = `C7-M${Date.now().toString().slice(-5)}`;
+        const bookingPayload = {
+          id: bookingId,
+          slotId: selectedSlot.id,
+          date: selectedDate,
+          startTime: selectedSlot.startTime,
+          endTime: selectedSlot.endTime,
+          userId: user?.uid || "guest",
+          userName: values.name,
+          userPhone: values.phone,
+          userEmail: user?.email || "",
+          status: "pending",
+          paymentStatus: "pending",
+          amount: total,
+          addOns: selectedAddOns,
+          address,
+          coordinates,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        };
+
+        await setDoc(doc(db, "bookings", bookingId), bookingPayload);
+
+        window.open(paymentLinks.cricketBookingUrl, "_blank");
+
+        openOwnerWhatsApp(
+          `New Captain 7 booking requested (Payment Pending). Name: ${values.name}. Date: ${selectedDate}. Slot: ${selectedSlot.startTime}-${selectedSlot.endTime}. Amount: ${formatCurrency(total)}. Booking ID: ${bookingId}.`
+        );
+
+        onConfirmed?.({ id: bookingId, status: "pending" });
+        return;
+      }
+
       await openRazorpayCheckout({
         amount: total,
         name: "Captain 7 Eat & Play",

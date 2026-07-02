@@ -67,7 +67,9 @@ export default function Login() {
         <Button type="submit" className="mt-6 w-full">Login</Button>
         <div className="mt-3 grid gap-3">
           <Button type="button" variant="secondary" onClick={handleGoogle}>Continue with Google</Button>
-          <Button type="button" variant="ghost" onClick={demo}>Demo Admin Login</Button>
+          {(import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO_LOGIN === "true") && (
+            <Button type="button" variant="ghost" onClick={demo}>Demo Admin Login</Button>
+          )}
         </div>
       </form>
       <Toast message={toast} />

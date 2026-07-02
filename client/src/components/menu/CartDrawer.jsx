@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { ExternalLink, Minus, Plus, ShoppingBag, Trash2, X } from "lucide-react";
+import { ExternalLink, Minus, Plus, ShoppingBag, Trash2, X, MapPin } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { addDoc, collection, doc, serverTimestamp, setDoc } from "firebase/firestore";
@@ -11,6 +11,7 @@ import { openOwnerWhatsApp } from "../../utils/whatsapp.js";
 import { Button } from "../ui/Button.jsx";
 import { Spinner } from "../ui/Spinner.jsx";
 import { Toast } from "../ui/Toast.jsx";
+import { useSettingDoc } from "../../hooks/useSettings.js";
 
 const DEFAULT_CITY = "Narasaraopet";
 
@@ -55,6 +56,78 @@ export function CartDrawer() {
   const [toast, setToast] = useState("");
   const showButton = location.pathname === "/food-menu" || itemCount > 0;
 
+  const { data: apiKeys } = useSettingDoc("apiKeys", {});
+  const [coordinates, setCoordinates] = useState(null);
+  const [detecting, setDetecting] = useState(false);
+
+  const handleAutoDetect = () => {
+    if (!navigator.geolocation) {
+      triggerToast("Geolocation is not supported by your browser");
+      return;
+    }
+    setDetecting(true);
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        setCoordinates({ latitude, longitude });
+        
+        const googleMapsApiKey = apiKeys?.googleMapsApiKey || "";
+        
+        try {
+          if (googleMapsApiKey) {
+            const res = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?latlng=${latitude},${longitude}&key=${googleMapsApiKey}`);
+            const data = await res.json();
+            if (data.results && data.results.length > 0) {
+              const addressComponents = data.results[0].address_components;
+              
+              let foundFlat = "";
+              let foundBuilding = "";
+              let foundStreet = "";
+              
+              addressComponents.forEach(comp => {
+                if (comp.types.includes("subpremise") || comp.types.includes("premise")) {
+                  foundFlat = comp.long_name;
+                } else if (comp.types.includes("neighborhood") || comp.types.includes("sublocality")) {
+                  foundBuilding = comp.long_name;
+                } else if (comp.types.includes("route") || comp.types.includes("sublocality_level_1")) {
+                  foundStreet = comp.long_name;
+                }
+              });
+              
+              setFlatNo(foundFlat || "Flat/House Detected");
+              setBuildingName(foundBuilding || "");
+              setArea(foundStreet || data.results[0].formatted_address);
+              triggerToast("Location auto-detected successfully!");
+              return;
+            }
+          }
+          
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json&addressdetails=1`);
+          const data = await res.json();
+          if (data && data.address) {
+            const addr = data.address;
+            setFlatNo(addr.house_number || "House Detected");
+            setBuildingName(addr.neighbourhood || addr.suburb || "");
+            setArea(addr.road || addr.subdivision || data.display_name || "");
+            triggerToast("Location auto-detected via OpenStreetMap!");
+          } else {
+            triggerToast("Failed to reverse-geocode coordinates");
+          }
+        } catch (err) {
+          triggerToast("Failed to resolve address: " + err.message);
+        } finally {
+          setDetecting(false);
+        }
+      },
+      (err) => {
+        console.error(err);
+        triggerToast("Failed to retrieve geolocation coordinate: " + err.message);
+        setDetecting(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
   const cartItems = useMemo(
     () =>
       items.map((item) => ({
@@ -96,7 +169,7 @@ export function CartDrawer() {
       const generatedId = `C7${Date.now().toString().slice(-5)}`;
       const orderRef = doc(db, "orders", generatedId);
 
-      await setDoc(orderRef, {
+      const orderPayload = {
         id: generatedId,
         customerName: customerName.trim(),
         customerPhone: customerPhone.trim(),
@@ -118,6 +191,29 @@ export function CartDrawer() {
         acceptedAt: null,
         pickedUpAt: null,
         deliveredAt: null,
+        coordinates: coordinates || null
+      };
+
+      await setDoc(orderRef, orderPayload);
+
+      await setDoc(doc(db, "foodOrders", generatedId), {
+        id: generatedId,
+        customerName: customerName.trim(),
+        customerPhone: customerPhone.trim(),
+        flatNo: flatNo.trim(),
+        buildingName: buildingName.trim(),
+        area: area.trim(),
+        city,
+        fullAddress,
+        items: cartItems,
+        subtotal,
+        gst,
+        discount,
+        total,
+        status: "pending",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        coordinates: coordinates || null
       });
 
       await addDoc(collection(db, "notifications"), {
@@ -299,7 +395,18 @@ export function CartDrawer() {
                     <Row label="Payable Amount" value={formatCurrency(total)} strong />
                   </div>
 
-                  <h3 className="font-serif text-lg font-bold text-white">Delivery Details</h3>
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-serif text-lg font-bold text-white">Delivery Details</h3>
+                    <button
+                      type="button"
+                      onClick={handleAutoDetect}
+                      disabled={detecting}
+                      className="inline-flex items-center gap-1.5 text-xs text-captain-gold hover:underline"
+                    >
+                      <MapPin size={14} className={detecting ? "animate-bounce" : ""} />
+                      {detecting ? "Locating..." : "Use My Location"}
+                    </button>
+                  </div>
 
                   <Field label="Customer Name">
                     <input value={customerName} onChange={(event) => setCustomerName(event.target.value)} className="form-input w-full" required />

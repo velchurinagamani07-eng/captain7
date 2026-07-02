@@ -138,6 +138,10 @@ service cloud.firestore {
       allow read, update, delete: if isAdmin();
     }
 
+    match /settings/bookingExports {
+      allow read, write: if isAdmin();
+    }
+
     match /settings/{docId} {
       allow read: if true;
       allow write: if isAdmin();

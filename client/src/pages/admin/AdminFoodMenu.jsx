@@ -8,7 +8,7 @@ import { Card } from "../../components/ui/Card.jsx";
 import { uploadToImgBB, useAdminCollection } from "../../hooks/useAdminCollection.js";
 import { menuItems, menuCategories } from "../../data/siteData.js";
 
-const EMPTY = { name: "", category: "Pizza", price: "", description: "", image: "", isVeg: true, isBestseller: false, visible: true };
+const EMPTY = { name: "", category: "Pizza", price: "", description: "", image: "", isVeg: true, isBestseller: false, visible: true, active: true };
 
 export default function AdminFoodMenu() {
   const { data, loading, saving, save, remove } = useAdminCollection("menuItems", "createdAt");
@@ -25,7 +25,7 @@ export default function AdminFoodMenu() {
   function showToast(msg) { setToast(msg); setTimeout(() => setToast(""), 3000); }
   function openAdd() { setForm(EMPTY); setEditId(null); setModal(true); }
   function openEdit(row) {
-    setForm({ name: row.name, category: row.category, price: row.price, description: row.description || "", image: row.image || "", isVeg: row.isVeg ?? true, isBestseller: row.isBestseller ?? false, visible: row.visible ?? true });
+    setForm({ name: row.name, category: row.category, price: row.price, description: row.description || "", image: row.image || "", isVeg: row.isVeg ?? true, isBestseller: row.isBestseller ?? false, visible: row.visible ?? true, active: row.active ?? true });
     setEditId(row.id); setModal(true);
   }
 
@@ -86,7 +86,15 @@ export default function AdminFoodMenu() {
                     <td className="px-3 py-4 text-sm text-white/68">{row.category}</td>
                     <td className="px-3 py-4 text-sm text-white/68">₹{row.price}</td>
                     <td className="px-3 py-4 text-sm text-white/68">{row.isVeg ? "🟢 Veg" : "🔴 Non-Veg"}</td>
-                    <td className="px-3 py-4"><Badge tone={row.visible === false ? "grey" : "green"}>{row.visible === false ? "hidden" : "active"}</Badge></td>
+                    <td className="px-3 py-4">
+                      <button
+                        type="button"
+                        onClick={() => save(row.id, { ...row, active: row.active === false ? true : false })}
+                        className={`rounded-full px-3 py-1 text-xs font-semibold transition ${row.active === false ? "bg-white/10 text-white/50 hover:bg-white/20" : "bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30"}`}
+                      >
+                        {row.active === false ? "Inactive" : "Active"}
+                      </button>
+                    </td>
                     <td className="px-3 py-4">
                       <div className="flex justify-end gap-2">
                         <button type="button" onClick={() => openEdit(row)} className="grid h-9 w-9 place-items-center rounded-full border border-white/10 text-white/60 hover:border-captain-gold hover:text-captain-gold"><Edit3 size={15} /></button>
@@ -138,6 +146,7 @@ export default function AdminFoodMenu() {
             <label className="flex items-center gap-2"><input type="checkbox" checked={form.isVeg} onChange={(e) => setForm((f) => ({ ...f, isVeg: e.target.checked }))} /> Veg</label>
             <label className="flex items-center gap-2"><input type="checkbox" checked={form.isBestseller} onChange={(e) => setForm((f) => ({ ...f, isBestseller: e.target.checked }))} /> Bestseller</label>
             <label className="flex items-center gap-2"><input type="checkbox" checked={form.visible !== false} onChange={(e) => setForm((f) => ({ ...f, visible: e.target.checked }))} /> Visible</label>
+            <label className="flex items-center gap-2"><input type="checkbox" checked={form.active !== false} onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))} /> Active</label>
           </div>
           <div className="flex justify-end gap-3 pt-2">
             <Button variant="ghost" onClick={() => setModal(false)}>Cancel</Button>

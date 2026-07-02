@@ -19,8 +19,8 @@ export default function FoodMenu() {
   const allItems = firestoreItems.length ? firestoreItems : menuItems;
   const allCombos = firestoreCombos.length ? firestoreCombos : combos;
 
-  // Only show visible items
-  const visibleItems = allItems.filter((item) => item.visible !== false);
+  // Only show visible and active items
+  const visibleItems = allItems.filter((item) => item.visible !== false && item.active !== false);
 
   const filteredItems = useMemo(
     () => (category === "All" ? visibleItems : visibleItems.filter((item) => item.category === category)),

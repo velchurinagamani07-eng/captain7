@@ -10,7 +10,9 @@ import {
   Download, 
   Loader2, 
   CheckCircle,
-  AlertCircle
+  AlertCircle,
+  Gift,
+  CreditCard
 } from "lucide-react";
 import { doc, setDoc } from "firebase/firestore";
 import { db } from "../../firebase.js";
@@ -26,7 +28,9 @@ const TABS = [
   { id: "compressor", label: "Image Compressor", icon: Sliders },
   { id: "apikeys", label: "API Keys", icon: Key },
   { id: "whatsapp", label: "WhatsApp Settings", icon: MessageSquare },
-  { id: "business", label: "Business Info", icon: Building }
+  { id: "business", label: "Business Info", icon: Building },
+  { id: "returnCoupon", label: "Return Coupon", icon: Gift },
+  { id: "paymentLinks", label: "Payment Links", icon: CreditCard }
 ];
 
 export default function AdminSettings() {
@@ -41,12 +45,16 @@ export default function AdminSettings() {
   const { data: apiKeys, loading: loadingApi } = useSettingDoc("apiKeys", {});
   const { data: whatsapp, loading: loadingWA } = useSettingDoc("whatsapp", {});
   const { data: business, loading: loadingBiz } = useSettingDoc("business", {});
+  const { data: returnCoupon, loading: loadingCoupon } = useSettingDoc("returnCoupon", {});
+  const { data: paymentLinks, loading: loadingLinks } = useSettingDoc("paymentLinks", {});
 
   // Form States
   const [formHeroImages, setFormHeroImages] = useState({});
   const [formApiKeys, setFormApiKeys] = useState({});
   const [formWhatsapp, setFormWhatsapp] = useState({});
   const [formBusiness, setFormBusiness] = useState({});
+  const [formReturnCoupon, setFormReturnCoupon] = useState({});
+  const [formPaymentLinks, setFormPaymentLinks] = useState({});
 
   useEffect(() => {
     if (heroImages) setFormHeroImages(heroImages);
@@ -64,9 +72,17 @@ export default function AdminSettings() {
     if (business) setFormBusiness(business);
   }, [business]);
 
+  useEffect(() => {
+    if (returnCoupon) setFormReturnCoupon(returnCoupon);
+  }, [returnCoupon]);
+
+  useEffect(() => {
+    if (paymentLinks) setFormPaymentLinks(paymentLinks);
+  }, [paymentLinks]);
+
   // Image Compressor States
   const [compFile, setCompFile] = useState(null);
-  const [compTargetKB, setCompTargetKB] = useState(200);
+  const [compTargetKB, setCompTargetKB] = useState(500);
   const [compResult, setCompResult] = useState(null);
   const [compressing, setCompressing] = useState(false);
   const [origPreview, setOrigPreview] = useState("");
@@ -163,7 +179,7 @@ export default function AdminSettings() {
     }
   };
 
-  const isLoading = loadingHero || loadingApi || loadingWA || loadingBiz;
+  const isLoading = loadingHero || loadingApi || loadingWA || loadingBiz || loadingCoupon || loadingLinks;
 
   if (isLoading) {
     return (
@@ -574,6 +590,143 @@ export default function AdminSettings() {
                 <div className="flex justify-end pt-4 border-t border-white/5">
                   <Button type="submit" disabled={saving}>
                     {saving ? "Saving..." : "Save Business Info"}
+                  </Button>
+                </div>
+              </form>
+            </Card>
+          )}
+
+          {/* Tab: Return Coupon */}
+          {activeTab === "returnCoupon" && (
+            <Card hover={false} className="p-6 space-y-6">
+              <div>
+                <h3 className="font-serif text-2xl font-bold text-white mb-2">Welcome Back Coupon Popup</h3>
+                <p className="text-sm text-white/50">Manage the promotional coupon popup displayed to returning visitors.</p>
+              </div>
+
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleSaveSection("returnCoupon", formReturnCoupon);
+                }}
+                className="space-y-4"
+              >
+                <label className="flex items-center gap-2 text-sm text-white/70 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(formReturnCoupon.enabled)}
+                    onChange={(e) => setFormReturnCoupon(c => ({ ...c, enabled: e.target.checked }))}
+                    className="rounded border-white/20 text-captain-gold focus:ring-captain-gold"
+                  />
+                  <span>Enable Welcome Back Popup</span>
+                </label>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-xs text-white/55">Threshold Days (inactivity)</label>
+                    <input
+                      type="number"
+                      className="form-input w-full"
+                      value={formReturnCoupon.thresholdDays ?? 3}
+                      onChange={(e) => setFormReturnCoupon(c => ({ ...c, thresholdDays: Number(e.target.value) }))}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-white/55">Coupon Code (e.g. WELCOME7)</label>
+                    <input
+                      type="text"
+                      className="form-input w-full uppercase"
+                      value={formReturnCoupon.couponCode || ""}
+                      onChange={(e) => setFormReturnCoupon(c => ({ ...c, couponCode: e.target.value.toUpperCase() }))}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div>
+                    <label className="mb-1 block text-xs text-white/55">Discount Description Text</label>
+                    <input
+                      type="text"
+                      className="form-input w-full"
+                      value={formReturnCoupon.discountText || ""}
+                      onChange={(e) => setFormReturnCoupon(c => ({ ...c, discountText: e.target.value }))}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs text-white/55">Expiry Hours</label>
+                    <input
+                      type="number"
+                      className="form-input w-full"
+                      value={formReturnCoupon.expiryHours ?? 24}
+                      onChange={(e) => setFormReturnCoupon(c => ({ ...c, expiryHours: Number(e.target.value) }))}
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end pt-4 border-t border-white/5">
+                  <Button type="submit" disabled={saving}>
+                    {saving ? "Saving..." : "Save Coupon Settings"}
+                  </Button>
+                </div>
+              </form>
+            </Card>
+          )}
+
+          {/* Tab: Payment Links */}
+          {activeTab === "paymentLinks" && (
+            <Card hover={false} className="p-6 space-y-6">
+              <div>
+                <h3 className="font-serif text-2xl font-bold text-white mb-2">Razorpay Payment Links</h3>
+                <p className="text-sm text-white/50">Provide custom Razorpay dashboard payment URLs to bypass standard SDK orders API.</p>
+              </div>
+
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleSaveSection("paymentLinks", formPaymentLinks);
+                }}
+                className="space-y-4"
+              >
+                <div>
+                  <label className="mb-1 block text-xs text-white/55">Cricket Booking Payment Link (rzp.io/...)</label>
+                  <input
+                    type="url"
+                    className="form-input w-full font-mono text-xs"
+                    placeholder="https://rzp.io/l/your-cricket-link"
+                    value={formPaymentLinks.cricketBookingUrl || ""}
+                    onChange={(e) => setFormPaymentLinks(l => ({ ...l, cricketBookingUrl: e.target.value }))}
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs text-white/55">Party Package Payment Link</label>
+                  <input
+                    type="url"
+                    className="form-input w-full font-mono text-xs"
+                    placeholder="https://rzp.io/l/your-party-link"
+                    value={formPaymentLinks.partyPackageUrl || ""}
+                    onChange={(e) => setFormPaymentLinks(l => ({ ...l, partyPackageUrl: e.target.value }))}
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-1 block text-xs text-white/55">Food Order Payment Link</label>
+                  <input
+                    type="url"
+                    className="form-input w-full font-mono text-xs"
+                    placeholder="https://rzp.io/l/your-food-link"
+                    value={formPaymentLinks.foodOrderUrl || ""}
+                    onChange={(e) => setFormPaymentLinks(l => ({ ...l, foodOrderUrl: e.target.value }))}
+                  />
+                </div>
+
+                <div className="flex justify-end pt-4 border-t border-white/5">
+                  <Button type="submit" disabled={saving}>
+                    {saving ? "Saving..." : "Save Payment Links"}
                   </Button>
                 </div>
               </form>
