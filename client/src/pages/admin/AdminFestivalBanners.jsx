@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Edit3, Plus, Trash2, Camera, UploadCloud, Smartphone, Monitor, Check, Eye } from "lucide-react";
+import { Edit3, Plus, Trash2, Camera, UploadCloud, Smartphone, Monitor, Check, Eye, ArrowUp, ArrowDown } from "lucide-react";
 import { doc, setDoc, serverTimestamp, updateDoc, deleteDoc } from "firebase/firestore";
 import { db } from "../../firebase.js";
 import { useCollection } from "../../hooks/useFirestore.js";
@@ -16,7 +16,8 @@ const EMPTY_BANNER = {
   creditText: "Website made by Wayzentech: 9398724704",
   buttonText: "Next Go To Website",
   buttonUrl: "",
-  active: true
+  active: true,
+  order: 0
 };
 
 export default function AdminFestivalBanners() {
@@ -48,11 +49,36 @@ export default function AdminFestivalBanners() {
       creditText: row.creditText || "Website made by Wayzentech: 9398724704",
       buttonText: row.buttonText || "Next Go To Website",
       buttonUrl: row.buttonUrl || "",
-      active: row.active ?? true
+      active: row.active ?? true,
+      order: row.order ?? 0
     });
     setEditId(row.id);
     setUploadProgress(0);
     setModalOpen(true);
+  };
+
+  const rows = [...festivals].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+  const moveUp = async (index) => {
+    if (index === 0) return;
+    const current = rows[index];
+    const prev = rows[index - 1];
+    const currentOrder = current.order ?? index;
+    const prevOrder = prev.order ?? (index - 1);
+    await updateDoc(doc(db, "festivals", current.id), { order: prevOrder });
+    await updateDoc(doc(db, "festivals", prev.id), { order: currentOrder });
+    showToast("Reordered!");
+  };
+
+  const moveDown = async (index) => {
+    if (index === rows.length - 1) return;
+    const current = rows[index];
+    const next = rows[index + 1];
+    const currentOrder = current.order ?? index;
+    const nextOrder = next.order ?? (index + 1);
+    await updateDoc(doc(db, "festivals", current.id), { order: nextOrder });
+    await updateDoc(doc(db, "festivals", next.id), { order: currentOrder });
+    showToast("Reordered!");
   };
 
   const handleImageUpload = async (e) => {
@@ -95,6 +121,7 @@ export default function AdminFestivalBanners() {
         buttonText: form.buttonText.trim(),
         buttonUrl: form.buttonUrl.trim(),
         active: form.active,
+        order: form.order ?? festivals.length,
         updatedAt: serverTimestamp()
       };
 
@@ -166,7 +193,7 @@ export default function AdminFestivalBanners() {
                 </tr>
               </thead>
               <tbody>
-                {festivals.map((row) => (
+                {rows.map((row, index) => (
                   <tr key={row.id} className="border-b border-white/7 align-middle">
                     <td className="px-4 py-3">
                       <div className="h-12 w-24 overflow-hidden rounded border border-white/10 bg-captain-black/40">
@@ -193,6 +220,24 @@ export default function AdminFestivalBanners() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => moveUp(index)}
+                          disabled={index === 0}
+                          className="grid h-9 w-9 place-items-center rounded-full border border-white/10 text-white/60 hover:border-captain-gold hover:text-captain-gold disabled:opacity-30 disabled:hover:border-white/10 disabled:hover:text-white/60 transition"
+                          title="Move Up"
+                        >
+                          <ArrowUp size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => moveDown(index)}
+                          disabled={index === rows.length - 1}
+                          className="grid h-9 w-9 place-items-center rounded-full border border-white/10 text-white/60 hover:border-captain-gold hover:text-captain-gold disabled:opacity-30 disabled:hover:border-white/10 disabled:hover:text-white/60 transition"
+                          title="Move Down"
+                        >
+                          <ArrowDown size={14} />
+                        </button>
                         <button
                           type="button"
                           onClick={() => handleOpenEdit(row)}

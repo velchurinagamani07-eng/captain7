@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Edit3, Image, Plus, Star, Trash2, UploadCloud } from "lucide-react";
+import { Edit3, Image, Plus, Star, Trash2, UploadCloud, ArrowUp, ArrowDown } from "lucide-react";
 import { Modal } from "../../components/ui/Modal.jsx";
 import { Toast } from "../../components/ui/Toast.jsx";
 import { Badge } from "../../components/ui/Badge.jsx";
@@ -13,7 +13,7 @@ const EMPTY = { title: "", category: "Cricket", url: "", featured: false };
 
 export default function AdminGallery() {
   const { data, loading, saving, save, remove } = useAdminCollection("gallery", "createdAt");
-  const rows = data.length ? data : galleryImages;
+  const rows = [...(data.length ? data : galleryImages)].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState(EMPTY);
@@ -25,8 +25,30 @@ export default function AdminGallery() {
 
   function showToast(msg) { setToast(msg); setTimeout(() => setToast(""), 3000); }
 
-  function openAdd() { setForm(EMPTY); setEditId(null); setModal(true); }
-  function openEdit(row) { setForm({ title: row.title, category: row.category, url: row.url, featured: row.featured || false }); setEditId(row.id); setModal(true); }
+  function openAdd() { setForm({ ...EMPTY, order: rows.length }); setEditId(null); setModal(true); }
+  function openEdit(row) { setForm({ title: row.title, category: row.category, url: row.url, featured: row.featured || false, order: row.order ?? 0 }); setEditId(row.id); setModal(true); }
+
+  async function moveUp(index) {
+    if (index === 0) return;
+    const current = rows[index];
+    const prev = rows[index - 1];
+    const currentOrder = current.order ?? index;
+    const prevOrder = prev.order ?? (index - 1);
+    await save(current.id, { ...current, order: prevOrder });
+    await save(prev.id, { ...prev, order: currentOrder });
+    showToast("Reordered!");
+  }
+
+  async function moveDown(index) {
+    if (index === rows.length - 1) return;
+    const current = rows[index];
+    const next = rows[index + 1];
+    const currentOrder = current.order ?? index;
+    const nextOrder = next.order ?? (index + 1);
+    await save(current.id, { ...current, order: nextOrder });
+    await save(next.id, { ...next, order: currentOrder });
+    showToast("Reordered!");
+  }
 
   async function handleFileUpload(e) {
     const file = e.target.files?.[0];
@@ -46,7 +68,11 @@ export default function AdminGallery() {
 
   async function handleSave() {
     if (!form.title || !form.url) return showToast("Title and image are required");
-    await save(editId, form);
+    const payload = {
+      ...form,
+      order: form.order ?? rows.length
+    };
+    await save(editId, payload);
     setModal(false);
     showToast(editId ? "Updated!" : "Added!");
   }
@@ -91,7 +117,7 @@ export default function AdminGallery() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row) => (
+                {rows.map((row, index) => (
                   <tr key={row.id} className="border-b border-white/7">
                     <td className="px-3 py-4">
                       <div className="flex items-center gap-3">
@@ -109,6 +135,8 @@ export default function AdminGallery() {
                     </td>
                     <td className="px-3 py-4">
                       <div className="flex justify-end gap-2">
+                        <button type="button" onClick={() => moveUp(index)} disabled={index === 0} className="grid h-9 w-9 place-items-center rounded-full border border-white/10 text-white/60 hover:border-captain-gold hover:text-captain-gold disabled:opacity-30 disabled:hover:border-white/10 disabled:hover:text-white/60"><ArrowUp size={15} /></button>
+                        <button type="button" onClick={() => moveDown(index)} disabled={index === rows.length - 1} className="grid h-9 w-9 place-items-center rounded-full border border-white/10 text-white/60 hover:border-captain-gold hover:text-captain-gold disabled:opacity-30 disabled:hover:border-white/10 disabled:hover:text-white/60"><ArrowDown size={15} /></button>
                         <button type="button" onClick={() => toggleFeatured(row)} className={`rounded-full border px-3 py-2 text-xs transition ${row.featured ? "border-captain-gold text-captain-gold" : "border-white/10 text-white/60 hover:border-captain-gold hover:text-captain-gold"}`}>
                           <Star size={13} className="inline mr-1" />{row.featured ? "Unfeature" : "Feature"}
                         </button>
