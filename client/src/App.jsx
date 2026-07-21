@@ -52,13 +52,18 @@ const WorkerLogin = lazy(() => import("./pages/WorkerLogin.jsx"));
 const WorkerDashboard = lazy(() => import("./pages/WorkerDashboard.jsx"));
 const AdminWorkers = lazy(() => import("./pages/admin/AdminWorkers.jsx"));
 const AdminAnalytics = lazy(() => import("./pages/admin/AdminAnalytics.jsx"));
+const CustomerMenu = lazy(() => import("./pages/CustomerMenu.jsx"));
+const KitchenDashboard = lazy(() => import("./pages/KitchenDashboard.jsx"));
+const AdminTables = lazy(() => import("./pages/admin/AdminTables.jsx"));
 
 export default function App() {
   const location = useLocation();
   const isAdminRoute = location.pathname.startsWith("/admin");
   const isWorkerRoute = location.pathname.startsWith("/worker");
   const isFranchiseLanding = location.pathname === "/franchise";
-  const showPublicChrome = !isAdminRoute && !isWorkerRoute && !isFranchiseLanding;
+  const isMenuRoute = location.pathname.startsWith("/menu");
+  const isKitchenRoute = location.pathname.startsWith("/kitchen");
+  const showPublicChrome = !isAdminRoute && !isWorkerRoute && !isFranchiseLanding && !isMenuRoute && !isKitchenRoute;
   const [routeLoading, setRouteLoading] = useState(false);
 
   useEffect(() => {
@@ -122,6 +127,8 @@ export default function App() {
 
             {/* Public customer pages - no login required */}
             <Route path="/" element={<Home />} />
+            <Route path="/menu" element={<CustomerMenu />} />
+            <Route path="/kitchen" element={<KitchenDashboard />} />
             <Route path="/invoice/:orderId" element={<Invoice />} />
             <Route path="/cricket-booking" element={<CricketBooking />} />
             <Route path="/food-menu" element={<FoodMenu />} />
@@ -160,6 +167,7 @@ export default function App() {
                 <Route path="workers" element={<AdminWorkers />} />
                 <Route path="analytics" element={<AdminAnalytics />} />
                 <Route path="settings" element={<AdminSettings />} />
+                <Route path="tables" element={<AdminTables />} />
               </Route>
             </Route>
 
