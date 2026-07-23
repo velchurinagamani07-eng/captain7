@@ -1,6 +1,6 @@
-import { useMemo, useState, useEffect } from "react";
-import { ExternalLink, MapPin, ReceiptText, FileText, CheckCircle, HelpCircle, XCircle, Printer, MessageSquare, AlertTriangle } from "lucide-react";
-import { addDoc, collection, doc, serverTimestamp, updateDoc, onSnapshot, getDocs, writeBatch } from "firebase/firestore";
+import { useMemo, useState, useEffect, useRef } from "react";
+import { ExternalLink, MapPin, ReceiptText, FileText, CheckCircle, HelpCircle, XCircle, Printer, MessageSquare, AlertTriangle, Clock, Volume2 } from "lucide-react";
+import { addDoc, collection, doc, serverTimestamp, updateDoc, onSnapshot, getDocs, writeBatch, query, orderBy } from "firebase/firestore";
 import { jsPDF } from "jspdf";
 import "jspdf-autotable";
 import { Badge } from "../../components/ui/Badge.jsx";
@@ -14,26 +14,45 @@ import { useCollection, useDocument } from "../../hooks/useFirestore.js";
 import { formatCurrency } from "../../utils/formatCurrency.js";
 import { googleMapsSearchUrl } from "../../utils/maps.js";
 
-// Audio synthesized bell ding for bill request alerts
-function playBellChime() {
-  try {
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = audioCtx.createOscillator();
-    const gainNode = audioCtx.createGain();
-    
-    osc.connect(gainNode);
-    gainNode.connect(audioCtx.destination);
-    
-    osc.frequency.value = 987.77; // B5
-    gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
-    gainNode.gain.linearRampToValueAtTime(0.4, audioCtx.currentTime + 0.05);
-    gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.6);
-    
-    osc.start(audioCtx.currentTime);
-    osc.stop(audioCtx.currentTime + 0.6);
-  } catch (err) {
-    console.warn("Chime failed to play:", err);
-  }
+// Live Timer hook for Kanban cards elapsed time
+function useTimeElapsed(createdAt) {
+  const [elapsedText, setElapsedText] = useState("");
+  const [colorCode, setColorCode] = useState("text-green-400"); // green, yellow, red
+
+  useEffect(() => {
+    if (!createdAt) return;
+    const calculate = () => {
+      const date = createdAt.toDate ? createdAt.toDate() : new Date(createdAt);
+      const diffMs = Date.now() - date.getTime();
+      const diffMins = Math.floor(diffMs / 60000);
+
+      if (diffMins < 8) {
+        setElapsedText(`${diffMins} min ago`);
+        setColorCode("text-green-400 font-semibold");
+      } else if (diffMins < 15) {
+        setElapsedText(`${diffMins} min ago`);
+        setColorCode("text-yellow-400 font-bold");
+      } else {
+        setElapsedText(`${diffMins} MIN AGO! 🚨`);
+        setColorCode("text-red-500 font-black animate-pulse");
+      }
+    };
+
+    calculate();
+    const interval = setInterval(calculate, 15000);
+    return () => clearInterval(interval);
+  }, [createdAt]);
+
+  return { elapsedText, colorCode };
+}
+
+function TimeAgoTag({ createdAt }) {
+  const { elapsedText, colorCode } = useTimeElapsed(createdAt);
+  return (
+    <span className={`inline-flex items-center gap-1 font-mono text-[11px] ${colorCode}`}>
+      <Clock size={11} /> {elapsedText || "Just now"}
+    </span>
+  );
 }
 
 // 100-Order Export & Auto-Clear Popup Component
@@ -42,7 +61,6 @@ function ExportThresholdPopup({ totalOrders, threshold, lastResetAt }) {
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
-    // Re-check dismissal timer (30 minutes)
     const expiry = localStorage.getItem("captain7:exportAlertDismissedUntil");
     if (expiry && Number(expiry) > Date.now()) {
       setDismissed(true);
@@ -56,103 +74,91 @@ function ExportThresholdPopup({ totalOrders, threshold, lastResetAt }) {
   const handleExportAndClear = async () => {
     setExporting(true);
     try {
-      // 1. Fetch all orders that are not exported
-      const snap = await getDocs(collection(db, "orders"));
-      const orders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      // Fetch both delivery and table orders
+      const snapDelivery = await getDocs(collection(db, "orders"));
+      const snapTable = await getDocs(collection(db, "tableOrders"));
 
-      // Sort by orderNumber
-      orders.sort((a, b) => (a.orderNumber || 0) - (b.orderNumber || 0));
+      const deliveryList = snapDelivery.docs.map(d => ({ id: d.id, type: "Delivery", ...d.data() }));
+      const tableList = snapTable.docs.map(d => ({ id: d.id, type: "Dine-In", ...d.data() }));
+      const allOrders = [...deliveryList, ...tableList];
 
-      if (orders.length === 0) {
+      allOrders.sort((a, b) => (a.createdAt?.seconds || 0) - (b.createdAt?.seconds || 0));
+
+      if (allOrders.length === 0) {
         alert("No orders found to export.");
         setExporting(false);
         return;
       }
 
-      // 2. Generate PDF
+      // Generate PDF
       const docPdf = new jsPDF();
       
       // Page 1 Cover
       docPdf.setFillColor(10, 10, 10);
       docPdf.rect(0, 0, 210, 297, "F");
-      docPdf.setTextColor(201, 168, 76); // Gold
+      docPdf.setTextColor(201, 168, 76);
       docPdf.setFontSize(28);
       docPdf.text("CAPTAIN 7 EAT & PLAY", 105, 100, { align: "center" });
       docPdf.setTextColor(250, 250, 250);
       docPdf.setFontSize(16);
-      docPdf.text("Real-Time QR Ordering Export Report", 105, 115, { align: "center" });
+      docPdf.text("Order Export & Cleanup Report", 105, 115, { align: "center" });
       
       docPdf.setFontSize(10);
       docPdf.setTextColor(150, 150, 150);
       const dateStr = new Date().toLocaleString();
       docPdf.text(`Export Date: ${dateStr}`, 105, 180, { align: "center" });
-      docPdf.text(`Total Orders Cleared: ${orders.length}`, 105, 190, { align: "center" });
-      const revSum = orders.reduce((sum, o) => sum + Number(o.total || 0), 0);
+      docPdf.text(`Total Orders Cleared: ${allOrders.length}`, 105, 190, { align: "center" });
+      const revSum = allOrders.reduce((sum, o) => sum + Number(o.total || 0), 0);
       docPdf.text(`Total Revenue Cleared: ${formatCurrency(revSum)}`, 105, 200, { align: "center" });
       
-      // Footer Cover page
       docPdf.text("Captain 7 Eat & Play | FSSAI: 10123022000035 | Narasaraopet", 105, 280, { align: "center" });
 
       // Page 2 Orders Table
       docPdf.addPage();
       docPdf.setFontSize(14);
       docPdf.setTextColor(201, 168, 76);
-      docPdf.text("ORDERS LOG SUMMARY", 14, 20);
+      docPdf.text("ORDERS SUMMARY LOG", 14, 20);
 
-      const tableRows = orders.map((o) => [
-        `#${String(o.orderNumber || 0).padStart(3, "0")}`,
-        o.tableNumber ? `Table ${o.tableNumber}` : "Delivery",
+      const tableRows = allOrders.map((o) => [
+        o.orderNumber ? `#${String(o.orderNumber).padStart(3, "0")}` : `#${o.id.slice(-5)}`,
+        o.type === "Dine-In" ? `Table ${o.tableNumber}` : "Delivery",
         o.createdAt?.seconds ? new Date(o.createdAt.seconds * 1000).toLocaleString() : "Just now",
         o.items?.map(it => `${it.name} x${it.quantity}`).join(", ") || "",
         formatCurrency(o.subtotal || 0),
         formatCurrency(o.gst || 0),
         formatCurrency(o.total || 0),
         (o.status || "").toUpperCase(),
-        (o.paymentMethod || "Dine-in").toUpperCase()
+        (o.paymentMethod || "Pending").toUpperCase()
       ]);
 
       docPdf.autoTable({
         startY: 28,
-        head: [["Order#", "Table/Type", "Date & Time", "Items", "Subtotal", "GST", "Total", "Status", "Payment"]],
+        head: [["Order#", "Type", "Date & Time", "Items", "Subtotal", "GST", "Total", "Status", "Payment"]],
         body: tableRows,
         theme: "dark",
         headStyles: { fillColor: [201, 168, 76], textColor: [10, 10, 10] },
         alternateRowStyles: { fillColor: [22, 22, 22] }
       });
 
-      // 3. Trigger Download
       const filename = `Captain7_Orders_${new Date().toISOString().slice(0, 10)}.pdf`;
       docPdf.save(filename);
 
-      // 4. Batch Delete orders from database
+      // Batch Delete
       const batch = writeBatch(db);
-      snap.docs.forEach((itemDoc) => {
-        batch.delete(itemDoc.ref);
-      });
+      snapDelivery.docs.forEach(d => batch.delete(d.ref));
+      snapTable.docs.forEach(d => batch.delete(d.ref));
 
-      // Reset global counter and log export event
+      // Reset counter
       const counterRef = doc(db, "orderCounter", "global");
       batch.update(counterRef, {
         totalOrders: 0,
         lastResetAt: serverTimestamp()
       });
 
-      // Log the export event
-      const exportLogRef = doc(collection(db, "exportLogs"));
-      batch.set(exportLogRef, {
-        exportedAt: serverTimestamp(),
-        orderCount: orders.length,
-        totalRevenue: revSum,
-        pdfFilename: filename
-      });
-
-      // Clear all table occupancies
+      // Clear table occupancy
       const tablesSnap = await getDocs(collection(db, "tables"));
-      tablesSnap.docs.forEach((tDoc) => {
-        batch.update(tDoc.ref, {
-          isOccupied: false,
-          currentOrderId: null
-        });
+      tablesSnap.docs.forEach(tDoc => {
+        batch.update(tDoc.ref, { isOccupied: false, currentOrderId: null });
       });
 
       await batch.commit();
@@ -167,7 +173,6 @@ function ExportThresholdPopup({ totalOrders, threshold, lastResetAt }) {
   };
 
   const handleRemindLater = () => {
-    // Dismiss for 30 minutes
     const future = Date.now() + 30 * 60 * 1000;
     localStorage.setItem("captain7:exportAlertDismissedUntil", String(future));
     setDismissed(true);
@@ -183,7 +188,7 @@ function ExportThresholdPopup({ totalOrders, threshold, lastResetAt }) {
         <div>
           <h2 className="font-bebas text-captain-gold text-4xl tracking-widest font-extrabold">100 ORDERS THRESHOLD REACHED</h2>
           <p className="text-white/60 text-xs mt-2 leading-relaxed">
-            The system has reached the configured threshold of <span className="text-white font-bold">{threshold} orders</span>. To maintain optimal speed and storage space, you must export data and reset the counter.
+            The system has reached the configured threshold of <span className="text-white font-bold">{threshold} orders</span>. Please export data and clear records to maintain peak performance.
           </p>
         </div>
 
@@ -227,12 +232,21 @@ export default function AdminOrders() {
   const [activeTab, setActiveTab] = useState("delivery"); // delivery, dinein
   const [viewMode, setViewMode] = useState("kanban"); // kanban, list (for dinein)
   
+  // Audio Autoplay unlock state
+  const soundEnabledRef = useRef(false);
+  const [soundEnabled, setSoundEnabled] = useState(false);
+
   // Modals / Details
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [receiptOrder, setReceiptOrder] = useState(null);
   
-  // Firestore hooks
-  const { data: orders, loading: loadingOrders } = useCollection("orders", [], { live: true, orderBy: "createdAt", direction: "desc" });
+  // Real-time state collections
+  const [deliveryOrders, setDeliveryOrders] = useState([]);
+  const [loadingDelivery, setLoadingDelivery] = useState(true);
+
+  const [dineinOrders, setDineinOrders] = useState([]);
+  const [loadingDineIn, setLoadingDineIn] = useState(true);
+
   const { data: users, loading: loadingUsers } = useCollection("users", [], { live: true });
   const { data: tables } = useCollection("tables", [], { live: true });
   const { data: globalCounter } = useDocument("orderCounter/global", { totalOrders: 0 });
@@ -240,22 +254,92 @@ export default function AdminOrders() {
 
   const workers = useMemo(() => users.filter((user) => user.role === "worker"), [users]);
 
-  // Split orders
-  const deliveryOrders = useMemo(() => orders.filter((o) => o.tableNumber === undefined), [orders]);
-  const dineinOrders = useMemo(() => orders.filter((o) => o.tableNumber !== undefined && o.status !== "completed" && o.status !== "cancelled"), [orders]);
-
-  // Audio trigger on bill requests
-  useEffect(() => {
-    const hasUnreadBillRequests = dineinOrders.some((o) => o.status === "bill_requested");
-    if (hasUnreadBillRequests) {
-      playBellChime();
-    }
-  }, [dineinOrders]);
+  const isFirstDeliveryLoad = useRef(true);
+  const isFirstDineInLoad = useRef(true);
 
   function triggerToast(message) {
     setToast(message);
     setTimeout(() => setToast(""), 3000);
   }
+
+  // Audio play helper
+  const playSound = (path) => {
+    if (!soundEnabledRef.current) return;
+    try {
+      const audio = new Audio(path);
+      audio.play().catch((err) => console.log("Audio play error:", err));
+    } catch (err) {
+      console.log(err);
+    }
+  };
+
+  // Unlock browser audio autoplay on first click/tap anywhere on page
+  useEffect(() => {
+    const unlockSound = () => {
+      soundEnabledRef.current = true;
+      setSoundEnabled(true);
+      window.removeEventListener("click", unlockSound);
+      window.removeEventListener("keydown", unlockSound);
+      window.removeEventListener("touchstart", unlockSound);
+    };
+
+    window.addEventListener("click", unlockSound);
+    window.addEventListener("keydown", unlockSound);
+    window.addEventListener("touchstart", unlockSound);
+
+    return () => {
+      window.removeEventListener("click", unlockSound);
+      window.removeEventListener("keydown", unlockSound);
+      window.removeEventListener("touchstart", unlockSound);
+    };
+  }, []);
+
+  // 1. Real-time Listener for Delivery Orders (`orders` collection) -> /1.mp4
+  useEffect(() => {
+    const q = query(collection(db, "orders"), orderBy("createdAt", "desc"));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const docs = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
+      setDeliveryOrders(docs);
+      setLoadingDelivery(false);
+
+      if (!isFirstDeliveryLoad.current) {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === "added") {
+            playSound("/1.mp4");
+            triggerToast(`🛵 New Delivery Order! #${change.doc.id}`);
+          }
+        });
+      }
+      isFirstDeliveryLoad.current = false;
+    });
+
+    return unsubscribe;
+  }, []);
+
+  // 2. Real-time Listener for Dine-In Table Orders (`tableOrders` collection) -> /2.mp4
+  useEffect(() => {
+    const q = query(collection(db, "tableOrders"), orderBy("createdAt", "desc"));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const docs = snapshot.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .filter((o) => o.status !== "completed" && o.status !== "cancelled");
+      setDineinOrders(docs);
+      setLoadingDineIn(false);
+
+      if (!isFirstDineInLoad.current) {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === "added") {
+            playSound("/2.mp4");
+            const data = change.doc.data();
+            triggerToast(`🍽️ New Table Order! Table ${data.tableNumber || "N/A"}`);
+          }
+        });
+      }
+      isFirstDineInLoad.current = false;
+    });
+
+    return unsubscribe;
+  }, []);
 
   // Delivery assigns
   const handleAssignWorker = async (orderId, workerUid) => {
@@ -291,7 +375,7 @@ export default function AdminOrders() {
     }
   };
 
-  // Dine-in order progression actions
+  // Dine-in order progression actions in `tableOrders` collection
   const handleUpdateDineInStatus = async (orderId, newStatus) => {
     try {
       const updates = {
@@ -304,7 +388,7 @@ export default function AdminOrders() {
         updates.completedAt = serverTimestamp();
       }
 
-      await updateDoc(doc(db, "orders", orderId), updates);
+      await updateDoc(doc(db, "tableOrders", orderId), updates);
       
       // If completed, clear table status
       if (newStatus === "completed" && selectedOrder?.tableNumber) {
@@ -327,7 +411,7 @@ export default function AdminOrders() {
 
   const handleUpdatePayment = async (orderId, method) => {
     try {
-      await updateDoc(doc(db, "orders", orderId), {
+      await updateDoc(doc(db, "tableOrders", orderId), {
         paymentStatus: "paid",
         paymentMethod: method,
         status: "completed",
@@ -391,11 +475,28 @@ export default function AdminOrders() {
         lastResetAt={globalCounter.lastResetAt}
       />
 
+      {/* Sound unlock banner if muted */}
+      {!soundEnabled && (
+        <div
+          onClick={() => {
+            soundEnabledRef.current = true;
+            setSoundEnabled(true);
+          }}
+          className="bg-captain-gold/20 border border-captain-gold text-captain-bright p-3 rounded-lg text-xs font-nav font-bold uppercase tracking-wider flex items-center justify-between cursor-pointer animate-pulse"
+        >
+          <div className="flex items-center gap-2">
+            <Volume2 size={16} />
+            <span>🔊 Click anywhere on this page to enable sound notifications!</span>
+          </div>
+          <span className="bg-captain-gold text-captain-black px-2.5 py-1 rounded text-[10px]">Enable Sound</span>
+        </div>
+      )}
+
       {/* Screen Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 no-print">
         <div>
           <h1 className="font-display text-5xl text-white">ORDER CENTER</h1>
-          <p className="mt-2 text-sm text-white/55">Real-time dine-in QR orders, online food delivery, and counter exports.</p>
+          <p className="mt-2 text-sm text-white/55">Real-time online delivery (`orders`) and dine-in QR table (`tableOrders`) manager.</p>
         </div>
 
         {/* Tab switchers */}
@@ -407,7 +508,7 @@ export default function AdminOrders() {
               activeTab === "delivery" ? "bg-captain-gold text-captain-black" : "text-white/60"
             }`}
           >
-            Delivery Orders
+            Delivery Orders ({deliveryOrders.length})
           </button>
           <button
             type="button"
@@ -416,7 +517,7 @@ export default function AdminOrders() {
               activeTab === "dinein" ? "bg-captain-gold text-captain-black" : "text-white/60"
             }`}
           >
-            Dine-in (Table) Orders
+            Dine-In Table Orders ({dineinOrders.length})
           </button>
         </div>
       </div>
@@ -424,7 +525,7 @@ export default function AdminOrders() {
       {/* ==================== 1. DELIVERY TAB ==================== */}
       {activeTab === "delivery" && (
         <Card hover={false} className="p-0 no-print">
-          {loadingOrders || loadingUsers ? (
+          {loadingDelivery || loadingUsers ? (
             <div className="flex justify-center py-20"><Spinner /></div>
           ) : deliveryOrders.length === 0 ? (
             <div className="grid min-h-[260px] place-items-center text-center text-white/45">No delivery orders found.</div>
@@ -519,7 +620,7 @@ export default function AdminOrders() {
         <div className="space-y-6 no-print">
           {/* Controls switcher */}
           <div className="flex justify-between items-center">
-            <h3 className="font-bebas text-captain-gold text-2xl tracking-wider">Dine-in Tables Order Board</h3>
+            <h3 className="font-bebas text-captain-gold text-2xl tracking-wider">Dine-in Tables Order Board (`tableOrders`)</h3>
             <div className="flex bg-captain-card border border-white/5 p-1 rounded-lg text-xs">
               <button
                 type="button"
@@ -574,9 +675,15 @@ export default function AdminOrders() {
                           )}
                           <div className="flex justify-between items-center">
                             <span className="font-bebas text-white text-lg tracking-wider">TABLE {order.tableNumber}</span>
-                            <span className="font-mono text-white/45 text-[10px]">#{String(order.orderNumber).padStart(3, "0")}</span>
+                            <span className="font-mono text-white/45 text-[10px]">
+                              #{order.orderNumber ? String(order.orderNumber).padStart(3, "0") : String(order.id).slice(-4)}
+                            </span>
                           </div>
                           
+                          <div className="mt-1">
+                            <TimeAgoTag createdAt={order.createdAt} />
+                          </div>
+
                           <p className="text-[11px] text-white/50 line-clamp-2 mt-2 leading-relaxed">
                             {order.items?.map(it => `${it.quantity}× ${it.name}`).join(", ")}
                           </p>
@@ -615,7 +722,9 @@ export default function AdminOrders() {
                     <tbody>
                       {dineinOrders.map((order) => (
                         <tr key={order.id} className="border-b border-white/7 align-top text-white/68">
-                          <td className="px-4 py-4 font-mono font-bold text-captain-bright">#{String(order.orderNumber).padStart(3, "0")}</td>
+                          <td className="px-4 py-4 font-mono font-bold text-captain-bright">
+                            #{order.orderNumber ? String(order.orderNumber).padStart(3, "0") : String(order.id).slice(-4)}
+                          </td>
                           <td className="px-4 py-4 font-semibold text-white">Table {order.tableNumber}</td>
                           <td className="px-4 py-4 text-xs leading-5">
                             {order.items?.map(it => `${it.quantity}× ${it.name}`).join(", ")}
@@ -693,7 +802,9 @@ export default function AdminOrders() {
             <div className="bg-captain-black border border-white/10 rounded-xl p-4 flex justify-between items-center">
               <div>
                 <span className="font-bebas text-captain-bright text-3xl font-bold tracking-wider">TABLE {selectedOrder.tableNumber}</span>
-                <div className="font-mono text-xs text-white/40 mt-0.5">Order #{String(selectedOrder.orderNumber).padStart(3, "0")}</div>
+                <div className="font-mono text-xs text-white/40 mt-0.5">
+                  Order #{selectedOrder.orderNumber ? String(selectedOrder.orderNumber).padStart(3, "0") : String(selectedOrder.id).slice(-4)}
+                </div>
               </div>
               <Badge tone={selectedOrder.status === "bill_requested" ? "red" : "blue"}>
                 {selectedOrder.status.replace("_", " ")}
@@ -704,8 +815,8 @@ export default function AdminOrders() {
             <div>
               <div className="mb-2 font-nav text-xs font-extrabold uppercase tracking-wider text-captain-gold">Ordered Items</div>
               <div className="space-y-3 bg-captain-black/30 border border-white/5 p-4 rounded-xl">
-                {selectedOrder.items?.map((it) => (
-                  <div key={it.itemId} className="flex justify-between items-baseline border-b border-white/5 pb-2.5 last:border-0 last:pb-0">
+                {selectedOrder.items?.map((it, i) => (
+                  <div key={`${it.itemId || i}`} className="flex justify-between items-baseline border-b border-white/5 pb-2.5 last:border-0 last:pb-0">
                     <div className="pr-4">
                       <div className="font-semibold text-white">{it.name}</div>
                       {it.specialNote && <p className="text-xs text-captain-gold italic">"{it.specialNote}"</p>}
@@ -761,7 +872,7 @@ export default function AdminOrders() {
               </div>
 
               {/* Payment Settlement controls */}
-              {selectedOrder.status === "bill_requested" && (
+              {(selectedOrder.status === "bill_requested" || selectedOrder.status === "served") && (
                 <div className="bg-captain-gold/5 border border-captain-gold/25 p-4 rounded-xl space-y-4">
                   <div className="font-nav text-xs font-extrabold uppercase tracking-wider text-captain-bright">Settle Payment & Clear Table</div>
                   <div className="grid grid-cols-3 gap-2">
@@ -805,7 +916,7 @@ export default function AdminOrders() {
               </div>
               <div className="border-y border-dashed border-black py-2.5 space-y-1 flex justify-between">
                 <div>
-                  <div>Order #: {String(receiptOrder.orderNumber || receiptOrder.id).slice(-4)}</div>
+                  <div>Order #: {receiptOrder.orderNumber ? String(receiptOrder.orderNumber).padStart(3, "0") : String(receiptOrder.id).slice(-4)}</div>
                   <div>Date: {receiptOrder.createdAt?.seconds ? new Date(receiptOrder.createdAt.seconds * 1000).toLocaleDateString() : new Date().toLocaleDateString()}</div>
                 </div>
                 <div className="text-right">
@@ -823,8 +934,8 @@ export default function AdminOrders() {
                   </tr>
                 </thead>
                 <tbody>
-                  {receiptOrder.items?.map((it) => (
-                    <tr key={it.itemId}>
+                  {receiptOrder.items?.map((it, idx) => (
+                    <tr key={`${it.itemId || idx}`}>
                       <td className="py-1">{it.name}</td>
                       <td className="py-1 text-center">{it.quantity}</td>
                       <td className="py-1 text-right">₹{it.price * it.quantity}</td>

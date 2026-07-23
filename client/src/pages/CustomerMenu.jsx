@@ -120,7 +120,7 @@ export default function CustomerMenu() {
     
     // Listen for any active dine-in orders for this table
     const q = query(
-      collection(db, "orders"),
+      collection(db, "tableOrders"),
       where("tableNumber", "==", tableNum),
       where("status", "in", ["pending", "preparing", "ready", "served", "bill_requested"])
     );
@@ -250,6 +250,7 @@ export default function CustomerMenu() {
         gst: cartGst,
         total: cartTotal,
         status: "pending",
+        source: "dine-in",
         paymentStatus: "unpaid",
         paymentMethod: null,
         customerNote: kitchenNote || "",
@@ -262,7 +263,7 @@ export default function CustomerMenu() {
       };
 
       // 3. Save order document
-      const docRef = await addDoc(collection(db, "orders"), orderPayload);
+      const docRef = await addDoc(collection(db, "tableOrders"), orderPayload);
       
       // 4. Update table status to occupied
       await addDoc(collection(db, "notifications"), {
@@ -291,7 +292,7 @@ export default function CustomerMenu() {
   const handleRequestBill = async () => {
     if (!orderId || !activeOrder) return;
     try {
-      const orderRef = doc(db, "orders", orderId);
+      const orderRef = doc(db, "tableOrders", orderId);
       await runTransaction(db, async (transaction) => {
         transaction.update(orderRef, {
           status: "bill_requested",

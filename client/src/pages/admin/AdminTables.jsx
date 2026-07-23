@@ -149,7 +149,8 @@ export default function AdminTables() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-6">
             {sortedTables.map((table) => {
-              const qrUrl = `${window.location.origin}/menu?table=${table.tableNumber}`;
+              const baseUrl = import.meta.env.VITE_QR_BASE_URL || "https://www.captain7.in";
+              const qrUrl = `${baseUrl}/food-menu?table=${table.tableNumber}`;
               return (
                 <Card key={table.id} className="p-5 flex flex-col justify-between items-center border border-white/5 bg-captain-card space-y-4">
                   {/* Table title */}
@@ -223,7 +224,8 @@ export default function AdminTables() {
       <div className="print-only hidden">
         <div className="grid grid-cols-2 gap-x-12 gap-y-16 p-8">
           {sortedTables.map((table) => {
-            const qrUrl = `${window.location.origin}/menu?table=${table.tableNumber}`;
+            const baseUrl = import.meta.env.VITE_QR_BASE_URL || "https://www.captain7.in";
+            const qrUrl = `${baseUrl}/food-menu?table=${table.tableNumber}`;
             return (
               <div key={`print-${table.id}`} className="border-4 border-black p-8 rounded-2xl flex flex-col items-center justify-center space-y-6 text-center page-break-inside-avoid">
                 <h2 className="font-bebas text-4xl text-black font-bold tracking-widest uppercase">CAPTAIN 7</h2>

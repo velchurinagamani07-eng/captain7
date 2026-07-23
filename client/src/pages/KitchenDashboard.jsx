@@ -1,43 +1,8 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp } from "firebase/firestore";
-import { Clock, Eye, AlertTriangle, ShieldCheck } from "lucide-react";
+import { Clock, Eye, AlertTriangle, ShieldCheck, Volume2 } from "lucide-react";
 import { db } from "../firebase.js";
 import { useDocument } from "../hooks/useFirestore.js";
-
-// Helper function to play a synthesized kitchen chime using Web Audio API
-function playKitchenChime() {
-  try {
-    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    
-    // Tone 1: High crisp ding
-    const osc1 = audioCtx.createOscillator();
-    const gain1 = audioCtx.createGain();
-    osc1.connect(gain1);
-    gain1.connect(audioCtx.destination);
-    osc1.frequency.value = 880; // A5
-    gain1.gain.setValueAtTime(0, audioCtx.currentTime);
-    gain1.gain.linearRampToValueAtTime(0.3, audioCtx.currentTime + 0.05);
-    gain1.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.25);
-    osc1.start(audioCtx.currentTime);
-    osc1.stop(audioCtx.currentTime + 0.25);
-
-    // Tone 2: Harmonious resonance
-    setTimeout(() => {
-      const osc2 = audioCtx.createOscillator();
-      const gain2 = audioCtx.createGain();
-      osc2.connect(gain2);
-      gain2.connect(audioCtx.destination);
-      osc2.frequency.value = 1046.50; // C6
-      gain2.gain.setValueAtTime(0, audioCtx.currentTime);
-      gain2.gain.linearRampToValueAtTime(0.3, audioCtx.currentTime + 0.05);
-      gain2.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.35);
-      osc2.start(audioCtx.currentTime);
-      osc2.stop(audioCtx.currentTime + 0.35);
-    }, 120);
-  } catch (err) {
-    console.warn("Audio chime failed to play:", err);
-  }
-}
 
 // Live Timer hook to recalculate elapsed time every 15 seconds
 function useTimeElapsed(createdAt) {
@@ -72,18 +37,54 @@ function useTimeElapsed(createdAt) {
 }
 
 export default function KitchenDashboard() {
-  const [orders, setOrders] = useState([]);
+  const [deliveryOrders, setDeliveryOrders] = useState([]);
+  const [tableOrders, setTableOrders] = useState([]);
   const [filter, setFilter] = useState("all"); // all, pending, preparing, ready
   const [activeConfirmation, setActiveConfirmation] = useState(null); // { order, nextStatus }
   
+  // Audio Autoplay unlock state
+  const soundEnabledRef = useRef(false);
+  const [soundEnabled, setSoundEnabled] = useState(false);
+
   // PIN access control state
   const { data: config } = useDocument("settings/tableOrderingConfig", { kitchenPin: "" });
   const [pinInput, setPinInput] = useState("");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [pinError, setPinError] = useState("");
 
-  const prevOrdersCountRef = useRef(0);
-  const isFirstLoadRef = useRef(true);
+  const isFirstDeliveryLoad = useRef(true);
+  const isFirstTableLoad = useRef(true);
+
+  // Unlock browser audio on first user click/tap anywhere
+  useEffect(() => {
+    const unlockSound = () => {
+      soundEnabledRef.current = true;
+      setSoundEnabled(true);
+      window.removeEventListener("click", unlockSound);
+      window.removeEventListener("keydown", unlockSound);
+      window.removeEventListener("touchstart", unlockSound);
+    };
+
+    window.addEventListener("click", unlockSound);
+    window.addEventListener("keydown", unlockSound);
+    window.addEventListener("touchstart", unlockSound);
+
+    return () => {
+      window.removeEventListener("click", unlockSound);
+      window.removeEventListener("keydown", unlockSound);
+      window.removeEventListener("touchstart", unlockSound);
+    };
+  }, []);
+
+  const playSound = (path) => {
+    if (!soundEnabledRef.current) return;
+    try {
+      const audio = new Audio(path);
+      audio.play().catch((err) => console.log("Audio play error:", err));
+    } catch (err) {
+      console.log(err);
+    }
+  };
 
   // Authenticate kitchen screen
   useEffect(() => {
@@ -103,64 +104,98 @@ export default function KitchenDashboard() {
     }
   };
 
-  // Real-time listener for Active Dine-in orders
+  // 1. Real-time listener for Delivery orders (`orders` collection)
   useEffect(() => {
     if (!isAuthenticated) return;
 
-    // Fetch active dine-in orders (exclude online delivery orders which do not have a tableNumber)
     const q = query(
       collection(db, "orders"),
       where("status", "in", ["pending", "preparing", "ready"])
     );
 
-    const unsubscribe = onSnapshot(q, (snap) => {
-      const docs = snap.docs
-        .map((d) => ({ id: d.id, ...d.data() }))
-        // Filter out online delivery orders (which lack a tableNumber)
-        .filter((o) => o.tableNumber !== undefined);
-      
-      // Sort oldest first (highest priority)
-      docs.sort((a, b) => {
-        const aTime = a.createdAt?.seconds || 0;
-        const bTime = b.createdAt?.seconds || 0;
-        return aTime - bTime;
-      });
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const docs = snapshot.docs.map((d) => ({
+        id: d.id,
+        _collection: "orders",
+        isDelivery: true,
+        ...d.data()
+      }));
 
-      // Play chime when new orders arrive
-      if (!isFirstLoadRef.current && docs.length > prevOrdersCountRef.current) {
-        // Only chime if there is a new "pending" order
-        const hasNewPending = docs.some(o => o.status === "pending" && !orders.some(x => x.id === o.id));
-        if (hasNewPending) {
-          playKitchenChime();
-        }
+      if (!isFirstDeliveryLoad.current) {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === "added") {
+            playSound("/1.mp4");
+          }
+        });
       }
-
-      setOrders(docs);
-      prevOrdersCountRef.current = docs.length;
-      isFirstLoadRef.current = false;
+      isFirstDeliveryLoad.current = false;
+      setDeliveryOrders(docs);
     });
 
     return unsubscribe;
-  }, [isAuthenticated, orders]);
+  }, [isAuthenticated]);
+
+  // 2. Real-time listener for Dine-In Table orders (`tableOrders` collection)
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const q = query(
+      collection(db, "tableOrders"),
+      where("status", "in", ["pending", "preparing", "ready"])
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const docs = snapshot.docs.map((d) => ({
+        id: d.id,
+        _collection: "tableOrders",
+        isDelivery: false,
+        ...d.data()
+      }));
+
+      if (!isFirstTableLoad.current) {
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === "added") {
+            playSound("/2.mp4");
+          }
+        });
+      }
+      isFirstTableLoad.current = false;
+      setTableOrders(docs);
+    });
+
+    return unsubscribe;
+  }, [isAuthenticated]);
+
+  // Combine both delivery and dine-in orders into a single list sorted by createdAt (oldest first)
+  const combinedOrders = useMemo(() => {
+    const list = [...deliveryOrders, ...tableOrders];
+    list.sort((a, b) => {
+      const aTime = a.createdAt?.seconds || 0;
+      const bTime = b.createdAt?.seconds || 0;
+      return aTime - bTime;
+    });
+    return list;
+  }, [deliveryOrders, tableOrders]);
 
   // Statistics counters
   const stats = useMemo(() => {
-    const pending = orders.filter((o) => o.status === "pending").length;
-    const preparing = orders.filter((o) => o.status === "preparing").length;
-    const ready = orders.filter((o) => o.status === "ready").length;
+    const pending = combinedOrders.filter((o) => o.status === "pending").length;
+    const preparing = combinedOrders.filter((o) => o.status === "preparing").length;
+    const ready = combinedOrders.filter((o) => o.status === "ready").length;
     return { pending, preparing, ready };
-  }, [orders]);
+  }, [combinedOrders]);
 
   // Filtered orders list
   const filteredOrders = useMemo(() => {
-    if (filter === "all") return orders;
-    return orders.filter((o) => o.status === filter);
-  }, [orders, filter]);
+    if (filter === "all") return combinedOrders;
+    return combinedOrders.filter((o) => o.status === filter);
+  }, [combinedOrders, filter]);
 
-  // Update Firestore order status
+  // Update Firestore order status in respective collection
   const handleUpdateStatus = async (order, nextStatus) => {
     try {
-      const ref = doc(db, "orders", order.id);
+      const targetCollection = order._collection || (order.tableNumber ? "tableOrders" : "orders");
+      const ref = doc(db, targetCollection, order.id);
       const updates = {
         status: nextStatus,
         updatedAt: serverTimestamp()
@@ -216,14 +251,31 @@ export default function KitchenDashboard() {
 
   // 2. Active Kitchen screen
   return (
-    <div className="min-h-screen bg-[#070707] text-white p-4 font-sans selection:bg-captain-gold selection:text-captain-black">
+    <div className="min-h-screen bg-[#070707] text-white p-4 font-sans selection:bg-captain-gold selection:text-captain-black space-y-4">
+      {/* Sound unlock banner if muted */}
+      {!soundEnabled && (
+        <div
+          onClick={() => {
+            soundEnabledRef.current = true;
+            setSoundEnabled(true);
+          }}
+          className="bg-captain-gold/20 border border-captain-gold text-captain-bright p-3 rounded-lg text-xs font-nav font-bold uppercase tracking-wider flex items-center justify-between cursor-pointer animate-pulse"
+        >
+          <div className="flex items-center gap-2">
+            <Volume2 size={16} />
+            <span>Sound notifications are muted. Click anywhere on this page to enable sound!</span>
+          </div>
+          <span className="bg-captain-gold text-captain-black px-2.5 py-1 rounded text-[10px]">Enable Sound</span>
+        </div>
+      )}
+
       {/* Top Header stats bar */}
-      <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/10 pb-4 mb-6">
+      <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-white/10 pb-4">
         <div>
           <div className="font-bebas text-captain-gold text-3xl tracking-widest flex items-center gap-2">
             C7 KITCHEN PANEL 🍳
           </div>
-          <p className="text-xs text-white/45 uppercase tracking-[0.18em] font-bold">Real-time table orders dashboard</p>
+          <p className="text-xs text-white/45 uppercase tracking-[0.18em] font-bold">Real-time order updates (Delivery 🛵 & Table 🍽️)</p>
         </div>
 
         {/* Real-time statistics counters */}
@@ -247,7 +299,7 @@ export default function KitchenDashboard() {
       </header>
 
       {/* Tabs Filter */}
-      <div className="flex gap-2 border-b border-white/5 pb-4 mb-6">
+      <div className="flex gap-2 border-b border-white/5 pb-4">
         {["all", "pending", "preparing", "ready"].map((tab) => (
           <button
             key={tab}
@@ -259,7 +311,7 @@ export default function KitchenDashboard() {
                 : "bg-captain-card border border-white/5 text-white/55 hover:text-white"
             }`}
           >
-            {tab === "all" ? "All Orders" : tab} ({tab === "all" ? orders.length : orders.filter(o => o.status === tab).length})
+            {tab === "all" ? "All Orders" : tab} ({tab === "all" ? combinedOrders.length : combinedOrders.filter(o => o.status === tab).length})
           </button>
         ))}
       </div>
@@ -268,91 +320,104 @@ export default function KitchenDashboard() {
       {filteredOrders.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-24 text-white/30 border border-dashed border-white/10 rounded-xl bg-captain-card">
           <Eye size={40} className="mb-3 opacity-40 text-captain-gold" />
-          <p className="text-sm font-semibold tracking-wide">No active dine-in orders in this section.</p>
+          <p className="text-sm font-semibold tracking-wide">No active kitchen orders in this section.</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
-          {filteredOrders.map((order) => (
-            <div
-              key={order.id}
-              className={`bg-captain-card border rounded-xl overflow-hidden shadow-lg transition-all flex flex-col justify-between ${
-                order.status === "pending"
-                  ? "border-red-500/30 shadow-red-500/5 animate-pulse"
-                  : order.status === "preparing"
-                  ? "border-amber-500/20"
-                  : "border-green-500/25 opacity-75"
-              }`}
-            >
-              {/* Card Header */}
-              <div className="bg-captain-black/80 px-4 py-3 border-b border-white/5 flex items-center justify-between">
-                <div>
-                  <h3 className="font-bebas text-captain-bright text-2xl font-bold tracking-wider leading-none">
-                    TABLE {order.tableNumber}
-                  </h3>
-                  <div className="mt-1 font-mono text-[10px] text-white/40 font-bold">#{String(order.orderNumber).padStart(3, "0")}</div>
-                </div>
-                <div className="text-right">
-                  <TimeAgo createdAt={order.createdAt} />
-                </div>
-              </div>
-
-              {/* Items List */}
-              <div className="p-4 flex-1 space-y-3">
-                {order.items?.map((it, i) => (
-                  <div key={`${it.itemId}-${i}`} className="border-b border-white/5 pb-2.5 last:border-0 last:pb-0 flex items-start gap-2.5">
-                    {/* Veg indicator */}
-                    <span className="mt-1.5 shrink-0 flex h-3.5 w-3.5 items-center justify-center bg-black/60 rounded p-0.5 border border-white/5">
-                      <span className={`h-1.5 w-1.5 rounded-full ${it.isVeg ? "bg-green-500" : "bg-red-500"}`} />
-                    </span>
-                    <div className="flex-1">
-                      <div className="flex justify-between items-baseline gap-2">
-                        <span className="font-bebas text-white text-xl tracking-wider">{it.name}</span>
-                        <span className="font-mono text-captain-gold text-lg font-black shrink-0">×{it.quantity}</span>
+          {filteredOrders.map((order) => {
+            const isDineIn = order.tableNumber !== undefined || order.source === "dine-in";
+            return (
+              <div
+                key={`${order._collection}-${order.id}`}
+                className={`bg-captain-card border rounded-xl overflow-hidden shadow-lg transition-all flex flex-col justify-between ${
+                  order.status === "pending"
+                    ? "border-red-500/30 shadow-red-500/5 animate-pulse"
+                    : order.status === "preparing"
+                    ? "border-amber-500/20"
+                    : "border-green-500/25 opacity-75"
+                }`}
+              >
+                {/* Card Header with Source Badge */}
+                <div className="bg-captain-black/80 px-4 py-3 border-b border-white/5 flex items-center justify-between">
+                  <div>
+                    {isDineIn ? (
+                      <div className="flex items-center gap-1.5 font-bebas text-captain-bright text-2xl font-bold tracking-wider leading-none">
+                        <span>🍽️</span> TABLE {order.tableNumber}
                       </div>
-                      {it.specialNote && (
-                        <p className="text-xs text-captain-gold italic font-semibold mt-0.5">"{it.specialNote}"</p>
-                      )}
+                    ) : (
+                      <div className="flex items-center gap-1.5 font-bebas text-blue-400 text-xl font-bold tracking-wider leading-none">
+                        <span>🛵</span> DELIVERY ORDER
+                      </div>
+                    )}
+                    <div className="mt-1 font-mono text-[10px] text-white/40 font-bold">
+                      #{order.orderNumber ? String(order.orderNumber).padStart(3, "0") : String(order.id).slice(-5)}
                     </div>
                   </div>
-                ))}
-
-                {/* Overall Customer instructions note */}
-                {order.customerNote && (
-                  <div className="mt-4 p-2.5 bg-captain-black border border-captain-gold/15 rounded-lg">
-                    <div className="text-[10px] uppercase font-nav font-bold tracking-wider text-captain-gold">Note for Chef:</div>
-                    <p className="text-xs text-white/70 mt-1 italic leading-relaxed">"{order.customerNote}"</p>
+                  <div className="text-right">
+                    <TimeAgo createdAt={order.createdAt} />
                   </div>
-                )}
-              </div>
+                </div>
 
-              {/* Card Footer Button */}
-              <div className="p-4 bg-captain-black/30 border-t border-white/5">
-                {order.status === "pending" && (
-                  <button
-                    type="button"
-                    onClick={() => setActiveConfirmation({ order, nextStatus: "preparing" })}
-                    className="w-full bg-red-600 hover:bg-red-700 py-3 rounded-lg text-xs font-extrabold uppercase tracking-wider text-white transition flex items-center justify-center gap-1.5"
-                  >
-                    <Clock size={14} /> Accept Order
-                  </button>
-                )}
-                {order.status === "preparing" && (
-                  <button
-                    type="button"
-                    onClick={() => setActiveConfirmation({ order, nextStatus: "ready" })}
-                    className="w-full bg-amber-500 hover:bg-amber-600 py-3 rounded-lg text-xs font-extrabold uppercase tracking-wider text-captain-black transition flex items-center justify-center gap-1.5"
-                  >
-                    <Clock size={14} /> Mark Ready
-                  </button>
-                )}
-                {order.status === "ready" && (
-                  <div className="w-full border border-green-500/35 bg-green-950/20 py-2.5 rounded-lg text-[10px] font-extrabold uppercase tracking-wider text-green-400 text-center">
-                    Ready to Serve 🍽️
-                  </div>
-                )}
+                {/* Items List */}
+                <div className="p-4 flex-1 space-y-3">
+                  {order.items?.map((it, i) => (
+                    <div key={`${it.itemId || it.id}-${i}`} className="border-b border-white/5 pb-2.5 last:border-0 last:pb-0 flex items-start gap-2.5">
+                      {/* Veg indicator */}
+                      <span className="mt-1.5 shrink-0 flex h-3.5 w-3.5 items-center justify-center bg-black/60 rounded p-0.5 border border-white/5">
+                        <span className={`h-1.5 w-1.5 rounded-full ${it.isVeg ? "bg-green-500" : "bg-red-500"}`} />
+                      </span>
+                      <div className="flex-1">
+                        <div className="flex justify-between items-baseline gap-2">
+                          <span className="font-bebas text-white text-xl tracking-wider">{it.name}</span>
+                          <span className="font-mono text-captain-gold text-lg font-black shrink-0">×{it.quantity}</span>
+                        </div>
+                        {it.specialNote && (
+                          <p className="text-xs text-captain-gold italic font-semibold mt-0.5">"{it.specialNote}"</p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Customer instructions note */}
+                  {(order.customerNote || order.customerName) && (
+                    <div className="mt-4 p-2.5 bg-captain-black border border-captain-gold/15 rounded-lg">
+                      <div className="text-[10px] uppercase font-nav font-bold tracking-wider text-captain-gold">
+                        {order.customerName ? `Customer: ${order.customerName}` : "Note for Chef:"}
+                      </div>
+                      {order.customerNote && <p className="text-xs text-white/70 mt-1 italic leading-relaxed">"{order.customerNote}"</p>}
+                    </div>
+                  )}
+                </div>
+
+                {/* Card Footer Button */}
+                <div className="p-4 bg-captain-black/30 border-t border-white/5">
+                  {order.status === "pending" && (
+                    <button
+                      type="button"
+                      onClick={() => setActiveConfirmation({ order, nextStatus: "preparing" })}
+                      className="w-full bg-red-600 hover:bg-red-700 py-3 rounded-lg text-xs font-extrabold uppercase tracking-wider text-white transition flex items-center justify-center gap-1.5"
+                    >
+                      <Clock size={14} /> Accept Order
+                    </button>
+                  )}
+                  {order.status === "preparing" && (
+                    <button
+                      type="button"
+                      onClick={() => setActiveConfirmation({ order, nextStatus: "ready" })}
+                      className="w-full bg-amber-500 hover:bg-amber-600 py-3 rounded-lg text-xs font-extrabold uppercase tracking-wider text-captain-black transition flex items-center justify-center gap-1.5"
+                    >
+                      <Clock size={14} /> Mark Ready
+                    </button>
+                  )}
+                  {order.status === "ready" && (
+                    <div className="w-full border border-green-500/35 bg-green-950/20 py-2.5 rounded-lg text-[10px] font-extrabold uppercase tracking-wider text-green-400 text-center">
+                      Ready to Serve 🍽️
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -366,7 +431,7 @@ export default function KitchenDashboard() {
             <div>
               <h4 className="font-bebas text-2xl text-white tracking-wide">Update Order Status</h4>
               <p className="text-white/60 text-xs mt-1">
-                Mark Table <span className="text-captain-bright font-bold">{activeConfirmation.order.tableNumber}</span>'s order as{" "}
+                Mark {activeConfirmation.order.tableNumber ? `Table ${activeConfirmation.order.tableNumber}` : "Delivery Order"} as{" "}
                 <span className="text-captain-gold font-bold uppercase tracking-wider">{activeConfirmation.nextStatus}</span>?
               </p>
             </div>
@@ -393,7 +458,7 @@ export default function KitchenDashboard() {
   );
 }
 
-// Subcomponent to wrapper the live timer calculating elapsed order age
+// Subcomponent to wrap the live timer calculating elapsed order age
 function TimeAgo({ createdAt }) {
   const { elapsedText, colorCode } = useTimeElapsed(createdAt);
   return (

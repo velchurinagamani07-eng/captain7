@@ -150,22 +150,70 @@ export function CartDrawer() {
     setStep("checkout");
   };
 
+  const searchParams = new URLSearchParams(location.search);
+  const tableParam = searchParams.get("table");
+  const tableNumber = tableParam ? Number(tableParam) : null;
+
   const placeOrder = async (event) => {
     event.preventDefault();
-    const fullAddress = buildFullAddress({ flatNo, buildingName, area, city });
-
-    if (!customerName.trim() || !customerPhone.trim() || !flatNo.trim() || !area.trim()) {
-      triggerToast("Name, phone, flat/house no, and area are required");
-      return;
-    }
-
-    if (!isDeliverableAddress(`${fullAddress} ${city}`)) {
-      triggerToast("Sorry we only deliver within Narasaraopet currently");
-      return;
-    }
-
     setSubmitting(true);
     try {
+      if (tableNumber) {
+        // Table Dine-In Order -> Save to tableOrders collection
+        const tableOrderPayload = {
+          tableNumber: Number(tableNumber),
+          tableId: `table-${tableNumber}`,
+          orderNumber: Math.floor(100 + Math.random() * 900),
+          items: cartItems.map((it) => ({
+            itemId: it.id,
+            name: it.name,
+            price: it.price,
+            quantity: it.quantity,
+            isVeg: Boolean(it.isVeg),
+            specialNote: ""
+          })),
+          subtotal,
+          gst,
+          total,
+          status: "pending",
+          source: "dine-in",
+          customerNote: customerName ? `Customer: ${customerName}` : "",
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp()
+        };
+
+        await addDoc(collection(db, "tableOrders"), tableOrderPayload);
+
+        await addDoc(collection(db, "notifications"), {
+          type: "new_table_order",
+          title: "New Table Order",
+          message: `Table ${tableNumber} placed a dine-in order for ${formatCurrency(total)}`,
+          link: "/admin/orders",
+          isRead: false,
+          createdAt: serverTimestamp(),
+          targetRole: "admin"
+        });
+
+        clearCart();
+        setOrderId(`Table ${tableNumber}`);
+        setStep("success");
+        return;
+      }
+
+      const fullAddress = buildFullAddress({ flatNo, buildingName, area, city });
+
+      if (!customerName.trim() || !customerPhone.trim() || !flatNo.trim() || !area.trim()) {
+        triggerToast("Name, phone, flat/house no, and area are required");
+        setSubmitting(false);
+        return;
+      }
+
+      if (!isDeliverableAddress(`${fullAddress} ${city}`)) {
+        triggerToast("Sorry we only deliver within Narasaraopet currently");
+        setSubmitting(false);
+        return;
+      }
+
       const generatedId = `C7${Date.now().toString().slice(-5)}`;
       const orderRef = doc(db, "orders", generatedId);
 

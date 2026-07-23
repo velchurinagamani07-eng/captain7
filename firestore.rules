@@ -77,6 +77,13 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
+    match /tableOrders/{orderId} {
+      allow create: if true;
+      allow read: if true;
+      allow update: if true;
+      allow delete: if isAdmin();
+    }
+
     match /foodOrders/{orderId} {
       allow create: if true;
       allow read: if isAdmin() || (signedIn() && resource.data.userId == request.auth.uid);

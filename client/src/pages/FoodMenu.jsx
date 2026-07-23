@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { HeroSlider } from "../components/home/HeroSlider.jsx";
 import { PageTransition } from "../components/common/PageTransition.jsx";
 import { SectionHeader } from "../components/common/SectionHeader.jsx";
@@ -9,6 +10,10 @@ import { menuCategories, menuItems, combos } from "../data/siteData.js";
 import { useAdminCollection } from "../hooks/useAdminCollection.js";
 
 export default function FoodMenu() {
+  const [searchParams] = useSearchParams();
+  const tableParam = searchParams.get("table");
+  const tableNumber = tableParam ? Number(tableParam) : null;
+
   const [category, setCategory] = useState("All");
   const [selectedItem, setSelectedItem] = useState(null);
 
@@ -29,6 +34,17 @@ export default function FoodMenu() {
 
   return (
     <PageTransition>
+      {tableNumber && (
+        <div className="sticky top-9 z-50 bg-captain-gold text-captain-black px-4 py-2.5 shadow-md flex items-center justify-between font-nav text-xs font-extrabold uppercase tracking-wider">
+          <div className="flex items-center gap-2">
+            <span className="text-base">🍽️</span>
+            <span>Ordering for Table {tableNumber}</span>
+          </div>
+          <span className="bg-captain-black text-captain-gold px-2.5 py-1 rounded text-[10px]">
+            Table #{tableNumber}
+          </span>
+        </div>
+      )}
       <HeroSlider single pageKey="foodMenu" title="FOOD MENU" subtitle="SIGNATURE BITES" image="https://images.unsplash.com/photo-1544025162-d76694265947?auto=format&fit=crop&w=1800&q=80" />
       <section className="bg-captain-black py-12">
         <div className="section-shell">
