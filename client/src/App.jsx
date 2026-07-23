@@ -113,7 +113,7 @@ export default function App() {
       <LoadingScreen active={routeLoading} />
       {showPublicChrome ? (
         <>
-          <AnnouncementBar />
+          {!location.search.includes("table=") ? <AnnouncementBar /> : null}
           <Navbar />
           <MobileHeader />
         </>

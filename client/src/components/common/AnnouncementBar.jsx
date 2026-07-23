@@ -5,11 +5,6 @@ import { useDocument } from "../../hooks/useFirestore.js";
 
 export const defaultAnnouncementMessages = [
   {
-    text: "Website made by WayzenTech",
-    cta: "Call 9398724704",
-    link: "tel:9398724704"
-  },
-  {
     text: "Order food & win coupons!",
     cta: "Order Now",
     link: "/food-menu"

@@ -60,6 +60,11 @@ export function CartDrawer() {
   const [coordinates, setCoordinates] = useState(null);
   const [detecting, setDetecting] = useState(false);
 
+  const searchParams = new URLSearchParams(location.search);
+  const tableParam = searchParams.get("table");
+  const tableNumber = tableParam ? Number(tableParam) : null;
+  const isDineIn = Boolean(tableNumber);
+
   const handleAutoDetect = () => {
     if (!navigator.geolocation) {
       triggerToast("Geolocation is not supported by your browser");
@@ -150,16 +155,12 @@ export function CartDrawer() {
     setStep("checkout");
   };
 
-  const searchParams = new URLSearchParams(location.search);
-  const tableParam = searchParams.get("table");
-  const tableNumber = tableParam ? Number(tableParam) : null;
-
   const placeOrder = async (event) => {
     event.preventDefault();
     setSubmitting(true);
     try {
-      if (tableNumber) {
-        // Table Dine-In Order -> Save to tableOrders collection
+      if (isDineIn) {
+        // Table Dine-In Order -> Save to tableOrders collection (NO address/phone required)
         const tableOrderPayload = {
           tableNumber: Number(tableNumber),
           tableId: `table-${tableNumber}`,
@@ -177,9 +178,8 @@ export function CartDrawer() {
           total,
           status: "pending",
           source: "dine-in",
-          customerNote: customerName ? `Customer: ${customerName}` : "",
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
+          customerNote: "",
+          createdAt: serverTimestamp()
         };
 
         await addDoc(collection(db, "tableOrders"), tableOrderPayload);
@@ -200,6 +200,7 @@ export function CartDrawer() {
         return;
       }
 
+      // Delivery mode order validation
       const fullAddress = buildFullAddress({ flatNo, buildingName, area, city });
 
       if (!customerName.trim() || !customerPhone.trim() || !flatNo.trim() || !area.trim()) {
@@ -437,61 +438,87 @@ export function CartDrawer() {
               </>
             ) : step === "checkout" ? (
               <form onSubmit={placeOrder} className="flex min-h-0 flex-1 flex-col justify-between overflow-hidden">
-                <div className="flex-1 space-y-4 overflow-auto p-5">
-                  <div className="rounded-lg border border-captain-gold/20 bg-captain-black/40 p-4">
-                    <Row label="Total Items" value={String(itemCount)} />
-                    <Row label="Payable Amount" value={formatCurrency(total)} strong />
-                  </div>
+                {isDineIn ? (
+                  /* Dine-In Checkout Screen - Simple Table Confirmation (No Address/Delivery Fields) */
+                  <div className="flex-1 space-y-4 overflow-auto p-5">
+                    <div className="rounded-lg border border-captain-gold/30 bg-captain-gold/10 p-5 text-center space-y-2">
+                      <div className="text-3xl">🍽️</div>
+                      <h3 className="font-bebas text-3xl tracking-wider text-captain-gold font-bold">TABLE #{tableNumber}</h3>
+                      <p className="text-xs text-white/70">Your food will be served directly at your table.</p>
+                    </div>
 
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-serif text-lg font-bold text-white">Delivery Details</h3>
-                    <button
-                      type="button"
-                      onClick={handleAutoDetect}
-                      disabled={detecting}
-                      className="inline-flex items-center gap-1.5 text-xs text-captain-gold hover:underline"
-                    >
-                      <MapPin size={14} className={detecting ? "animate-bounce" : ""} />
-                      {detecting ? "Locating..." : "Use My Location"}
-                    </button>
+                    <div className="rounded-lg border border-captain-gold/20 bg-captain-black/40 p-4 space-y-3">
+                      <h4 className="font-nav text-xs font-extrabold uppercase tracking-wider text-white/50 border-b border-white/5 pb-2">Order Summary</h4>
+                      {items.map((it) => (
+                        <div key={it.id} className="flex justify-between text-xs text-white/80">
+                          <span>{it.name} × {it.quantity}</span>
+                          <span className="font-mono">{formatCurrency(it.price * it.quantity)}</span>
+                        </div>
+                      ))}
+                      <div className="border-t border-white/10 pt-2 font-mono text-sm text-captain-bright font-bold flex justify-between">
+                        <span>Payable Amount</span>
+                        <span>{formatCurrency(total)}</span>
+                      </div>
+                    </div>
                   </div>
+                ) : (
+                  /* Delivery Mode Checkout Screen - Full Delivery Address Form */
+                  <div className="flex-1 space-y-4 overflow-auto p-5">
+                    <div className="rounded-lg border border-captain-gold/20 bg-captain-black/40 p-4">
+                      <Row label="Total Items" value={String(itemCount)} />
+                      <Row label="Payable Amount" value={formatCurrency(total)} strong />
+                    </div>
 
-                  <Field label="Customer Name">
-                    <input value={customerName} onChange={(event) => setCustomerName(event.target.value)} className="form-input w-full" required />
-                  </Field>
-                  <Field label="Phone Number">
-                    <input
-                      type="tel"
-                      value={customerPhone}
-                      onChange={(event) => setCustomerPhone(event.target.value)}
-                      className="form-input w-full"
-                      placeholder="90004 69552"
-                      required
-                    />
-                  </Field>
-                  <Field label="Flat No / House No">
-                    <input value={flatNo} onChange={(event) => setFlatNo(event.target.value)} className="form-input w-full" required />
-                  </Field>
-                  <Field label="Building Name / Landmark">
-                    <input value={buildingName} onChange={(event) => setBuildingName(event.target.value)} className="form-input w-full" />
-                  </Field>
-                  <Field label="Area / Street">
-                    <input
-                      value={area}
-                      onChange={(event) => setArea(event.target.value)}
-                      className="form-input w-full"
-                      placeholder="Bypass Road, Narasaraopet"
-                      required
-                    />
-                  </Field>
-                  <Field label="City">
-                    <input value={city} readOnly className="form-input w-full cursor-not-allowed text-white/70" />
-                  </Field>
-                </div>
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-serif text-lg font-bold text-white">Delivery Details</h3>
+                      <button
+                        type="button"
+                        onClick={handleAutoDetect}
+                        disabled={detecting}
+                        className="inline-flex items-center gap-1.5 text-xs text-captain-gold hover:underline"
+                      >
+                        <MapPin size={14} className={detecting ? "animate-bounce" : ""} />
+                        {detecting ? "Locating..." : "Use My Location"}
+                      </button>
+                    </div>
+
+                    <Field label="Customer Name">
+                      <input value={customerName} onChange={(event) => setCustomerName(event.target.value)} className="form-input w-full" required />
+                    </Field>
+                    <Field label="Phone Number">
+                      <input
+                        type="tel"
+                        value={customerPhone}
+                        onChange={(event) => setCustomerPhone(event.target.value)}
+                        className="form-input w-full"
+                        placeholder="90004 69552"
+                        required
+                      />
+                    </Field>
+                    <Field label="Flat No / House No">
+                      <input value={flatNo} onChange={(event) => setFlatNo(event.target.value)} className="form-input w-full" required />
+                    </Field>
+                    <Field label="Building Name / Landmark">
+                      <input value={buildingName} onChange={(event) => setBuildingName(event.target.value)} className="form-input w-full" />
+                    </Field>
+                    <Field label="Area / Street">
+                      <input
+                        value={area}
+                        onChange={(event) => setArea(event.target.value)}
+                        className="form-input w-full"
+                        placeholder="Bypass Road, Narasaraopet"
+                        required
+                      />
+                    </Field>
+                    <Field label="City">
+                      <input value={city} readOnly className="form-input w-full cursor-not-allowed text-white/70" />
+                    </Field>
+                  </div>
+                )}
 
                 <div className="space-y-3 border-t border-white/10 bg-captain-black/40 p-5">
                   <Button type="submit" disabled={submitting} className="w-full">
-                    {submitting ? <Spinner /> : "Confirm & Place Order"}
+                    {submitting ? <Spinner /> : isDineIn ? "Confirm & Place Table Order" : "Confirm & Place Order"}
                   </Button>
                   <Button type="button" variant="ghost" onClick={() => setStep("cart")} className="w-full">
                     Back to Cart
@@ -499,28 +526,41 @@ export function CartDrawer() {
                 </div>
               </form>
             ) : (
+              /* Success Screen */
               <div className="flex flex-1 flex-col items-center justify-center space-y-6 p-8 text-center">
                 <div className="grid h-16 w-16 place-items-center rounded-full border border-emerald-400 bg-emerald-500/10 text-emerald-400">
                   <ShoppingBag size={28} />
                 </div>
                 <div className="space-y-2">
-                  <h3 className="font-bebas text-3xl tracking-wider text-white">ORDER CONFIRMED</h3>
-                  <p className="text-sm text-white/60">Your order is saved and waiting for assignment.</p>
+                  <h3 className="font-bebas text-3xl tracking-wider text-white">
+                    {isDineIn ? "✅ ORDER PLACED" : "ORDER CONFIRMED"}
+                  </h3>
+                  <p className="text-sm text-white/60">
+                    {isDineIn
+                      ? `Table #${tableNumber} — your food is being prepared!`
+                      : "Your order is saved and waiting for assignment."}
+                  </p>
                 </div>
                 <div className="w-full rounded-lg border border-captain-gold/25 bg-captain-gold/5 p-4 font-mono text-center">
-                  <span className="block text-xs text-white/50">ORDER ID</span>
-                  <span className="text-xl font-bold text-captain-bright">#{orderId}</span>
+                  <span className="block text-xs text-white/50">{isDineIn ? "TABLE NUMBER" : "ORDER ID"}</span>
+                  <span className="text-xl font-bold text-captain-bright">
+                    {isDineIn ? `Table #${tableNumber}` : `#${orderId}`}
+                  </span>
                 </div>
-                <a
-                  href={googleMapsSearchUrl(orderAddress)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-captain-gold bg-captain-gold px-5 py-3 font-nav text-sm font-extrabold uppercase tracking-[0.14em] text-captain-black"
-                >
-                  <ExternalLink size={17} /> Open Address in Maps
-                </a>
+                {isDineIn ? (
+                  <p className="text-xs text-white/40">Pay at the counter when finished dining.</p>
+                ) : (
+                  <a
+                    href={googleMapsSearchUrl(orderAddress)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-captain-gold bg-captain-gold px-5 py-3 font-nav text-sm font-extrabold uppercase tracking-[0.14em] text-captain-black"
+                  >
+                    <ExternalLink size={17} /> Open Address in Maps
+                  </a>
+                )}
                 <Button onClick={closeDrawer} className="w-full">
-                  Continue Shopping
+                  Done
                 </Button>
               </div>
             )}
