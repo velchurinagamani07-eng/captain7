@@ -63,7 +63,8 @@ export default function App() {
   const isFranchiseLanding = location.pathname === "/franchise";
   const isMenuRoute = location.pathname.startsWith("/menu");
   const isKitchenRoute = location.pathname.startsWith("/kitchen");
-  const showPublicChrome = !isAdminRoute && !isWorkerRoute && !isFranchiseLanding && !isMenuRoute && !isKitchenRoute;
+  const isQrRoute = location.pathname.startsWith("/qr-codes");
+  const showPublicChrome = !isAdminRoute && !isWorkerRoute && !isFranchiseLanding && !isMenuRoute && !isKitchenRoute && !isQrRoute;
   const [routeLoading, setRouteLoading] = useState(false);
 
   useEffect(() => {
@@ -129,6 +130,7 @@ export default function App() {
             <Route path="/" element={<Home />} />
             <Route path="/menu" element={<CustomerMenu />} />
             <Route path="/kitchen" element={<KitchenDashboard />} />
+            <Route path="/qr-codes" element={<AdminTables />} />
             <Route path="/invoice/:orderId" element={<Invoice />} />
             <Route path="/cricket-booking" element={<CricketBooking />} />
             <Route path="/food-menu" element={<FoodMenu />} />
