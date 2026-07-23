@@ -61,7 +61,7 @@ service cloud.firestore {
       allow create: if true;
       allow read: if true;
       allow update: if true;
-      allow delete: if isAdmin();
+      allow delete: if true;
     }
 
     match /tables/{tableId} {
@@ -81,7 +81,7 @@ service cloud.firestore {
       allow create: if true;
       allow read: if true;
       allow update: if true;
-      allow delete: if isAdmin();
+      allow delete: if true;
     }
 
     match /foodOrders/{orderId} {

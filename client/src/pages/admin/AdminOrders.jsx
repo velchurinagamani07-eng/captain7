@@ -1,6 +1,6 @@
 import { useMemo, useState, useEffect, useRef } from "react";
-import { ExternalLink, MapPin, ReceiptText, FileText, CheckCircle, HelpCircle, XCircle, Printer, MessageSquare, AlertTriangle, Clock, Volume2 } from "lucide-react";
-import { addDoc, collection, doc, serverTimestamp, updateDoc, onSnapshot, getDocs, writeBatch, query, orderBy } from "firebase/firestore";
+import { ExternalLink, MapPin, ReceiptText, FileText, CheckCircle, HelpCircle, XCircle, Printer, MessageSquare, AlertTriangle, Clock, Volume2, Trash2 } from "lucide-react";
+import { addDoc, collection, doc, serverTimestamp, updateDoc, deleteDoc, onSnapshot, getDocs, writeBatch, query, orderBy } from "firebase/firestore";
 import { jsPDF } from "jspdf";
 import "jspdf-autotable";
 import { Badge } from "../../components/ui/Badge.jsx";
@@ -239,6 +239,7 @@ export default function AdminOrders() {
   // Modals / Details
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [receiptOrder, setReceiptOrder] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null); // { order, collectionName }
   
   // Real-time state collections
   const [deliveryOrders, setDeliveryOrders] = useState([]);
@@ -372,6 +373,32 @@ export default function AdminOrders() {
       triggerToast(error.message || "Failed to assign worker");
     } finally {
       setAssigningId("");
+    }
+  };
+
+  // Delete Order Handler
+  const handleDeleteOrder = async (target) => {
+    if (!target) return;
+    const { order, collectionName } = target;
+    try {
+      await deleteDoc(doc(db, collectionName, order.id));
+      if (order.tableNumber) {
+        const matchingTable = tables.find(t => t.tableNumber === order.tableNumber);
+        if (matchingTable) {
+          await updateDoc(doc(db, "tables", matchingTable.id), {
+            isOccupied: false,
+            currentOrderId: null
+          });
+        }
+      }
+      triggerToast("Order deleted successfully!");
+      setDeleteTarget(null);
+      if (selectedOrder?.id === order.id) {
+        setSelectedOrder(null);
+      }
+    } catch (err) {
+      console.error("Failed to delete order:", err);
+      triggerToast("Failed to delete order: " + err.message);
     }
   };
 
@@ -603,6 +630,14 @@ export default function AdminOrders() {
                                 <ReceiptText size={14} /> View Receipt
                               </button>
                             ) : null}
+                            <button
+                              type="button"
+                              onClick={() => setDeleteTarget({ order, collectionName: "orders" })}
+                              className="p-2 rounded-lg bg-red-950/40 border border-red-500/30 text-red-400 hover:bg-red-600 hover:text-white transition"
+                              title="Delete Order"
+                            >
+                              <Trash2 size={14} />
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -663,8 +698,7 @@ export default function AdminOrders() {
                       {columnOrders.map((order) => (
                         <div
                           key={order.id}
-                          onClick={() => setSelectedOrder(order)}
-                          className={`bg-captain-card border p-3 rounded-lg hover:border-captain-gold cursor-pointer transition relative ${
+                          className={`bg-captain-card border p-3 rounded-lg hover:border-captain-gold cursor-pointer transition relative group ${
                             order.status === "bill_requested" ? "border-red-500/35 bg-red-950/10 shadow-lg animate-pulse" : "border-white/5"
                           }`}
                         >
@@ -674,21 +708,36 @@ export default function AdminOrders() {
                             </span>
                           )}
                           <div className="flex justify-between items-center">
-                            <span className="font-bebas text-white text-lg tracking-wider">TABLE {order.tableNumber}</span>
-                            <span className="font-mono text-white/45 text-[10px]">
-                              #{order.orderNumber ? String(order.orderNumber).padStart(3, "0") : String(order.id).slice(-4)}
+                            <span onClick={() => setSelectedOrder(order)} className="font-bebas text-white text-lg tracking-wider hover:text-captain-bright">
+                              TABLE {order.tableNumber}
                             </span>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-white/45 text-[10px]">
+                                #{order.orderNumber ? String(order.orderNumber).padStart(3, "0") : String(order.id).slice(-4)}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDeleteTarget({ order, collectionName: "tableOrders" });
+                                }}
+                                className="p-1 rounded bg-red-950/40 border border-red-500/30 text-red-400 hover:bg-red-600 hover:text-white transition"
+                                title="Delete Order"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
                           </div>
                           
-                          <div className="mt-1">
+                          <div onClick={() => setSelectedOrder(order)} className="mt-1">
                             <TimeAgoTag createdAt={order.createdAt} />
                           </div>
 
-                          <p className="text-[11px] text-white/50 line-clamp-2 mt-2 leading-relaxed">
+                          <p onClick={() => setSelectedOrder(order)} className="text-[11px] text-white/50 line-clamp-2 mt-2 leading-relaxed">
                             {order.items?.map(it => `${it.quantity}× ${it.name}`).join(", ")}
                           </p>
 
-                          <div className="mt-4 flex justify-between items-center border-t border-white/5 pt-2">
+                          <div onClick={() => setSelectedOrder(order)} className="mt-4 flex justify-between items-center border-t border-white/5 pt-2">
                             <span className="font-mono text-captain-gold text-xs font-bold">{formatCurrency(order.total)}</span>
                             <span className="text-[10px] text-white/30 font-nav uppercase tracking-wider">View Details ➔</span>
                           </div>
@@ -736,13 +785,21 @@ export default function AdminOrders() {
                             </Badge>
                           </td>
                           <td className="px-4 py-4">
-                            <div className="flex justify-end">
+                            <div className="flex justify-end gap-2">
                               <button
                                 type="button"
                                 onClick={() => setSelectedOrder(order)}
                                 className="inline-flex items-center gap-2 rounded-full border border-captain-gold/45 px-3 py-1.5 text-xs text-captain-bright"
                               >
                                 View Order
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeleteTarget({ order, collectionName: "tableOrders" })}
+                                className="p-1.5 rounded-lg bg-red-950/40 border border-red-500/30 text-red-400 hover:bg-red-600 hover:text-white transition"
+                                title="Delete Order"
+                              >
+                                <Trash2 size={14} />
                               </button>
                             </div>
                           </td>
@@ -890,14 +947,21 @@ export default function AdminOrders() {
               )}
             </div>
 
-            {/* Printable Thermal receipt / WhatsApp Share */}
-            <div className="border-t border-white/5 pt-4 grid grid-cols-2 gap-3">
-              <Button onClick={() => generateWhatsAppText(selectedOrder)} className="flex items-center justify-center gap-2">
-                <MessageSquare size={16} /> WhatsApp Bill
+            {/* Printable Thermal receipt / WhatsApp Share / Delete Button */}
+            <div className="border-t border-white/5 pt-4 grid grid-cols-3 gap-3">
+              <Button onClick={() => generateWhatsAppText(selectedOrder)} className="flex items-center justify-center gap-1.5 text-xs">
+                <MessageSquare size={14} /> WhatsApp
               </Button>
-              <Button onClick={() => setReceiptOrder(selectedOrder)} variant="secondary" className="flex items-center justify-center gap-2">
-                <Printer size={16} /> Print Receipt
+              <Button onClick={() => setReceiptOrder(selectedOrder)} variant="secondary" className="flex items-center justify-center gap-1.5 text-xs">
+                <Printer size={14} /> Receipt
               </Button>
+              <button
+                type="button"
+                onClick={() => setDeleteTarget({ order: selectedOrder, collectionName: "tableOrders" })}
+                className="bg-red-950/40 border border-red-500/30 hover:bg-red-600 text-red-400 hover:text-white rounded-lg font-nav text-xs font-extrabold uppercase tracking-wider transition flex items-center justify-center gap-1.5"
+              >
+                <Trash2 size={14} /> Delete
+              </button>
             </div>
           </div>
         ) : null}
@@ -977,6 +1041,42 @@ export default function AdminOrders() {
           </div>
         ) : null}
       </Modal>
+
+      {/* Delete Confirmation Modal */}
+      {deleteTarget && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[90] animate-fadeIn">
+          <div className="bg-captain-charcoal border border-red-500/40 rounded-xl max-w-sm w-full p-6 text-center space-y-6 shadow-red-500/10">
+            <div className="w-14 h-14 bg-red-500/10 border border-red-500/30 rounded-full flex items-center justify-center mx-auto">
+              <Trash2 className="text-red-400" size={24} />
+            </div>
+            <div>
+              <h4 className="font-bebas text-2xl text-white tracking-wide">Delete Order</h4>
+              <p className="text-white/60 text-xs mt-1">
+                Are you sure you want to permanently delete{" "}
+                <span className="text-red-400 font-bold">
+                  {deleteTarget.order.tableNumber ? `Table ${deleteTarget.order.tableNumber}` : `Delivery Order #${deleteTarget.order.id}`}
+                </span>? This action cannot be undone.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => handleDeleteOrder(deleteTarget)}
+                className="flex-1 bg-red-600 hover:bg-red-700 py-2.5 rounded-lg text-xs font-extrabold uppercase tracking-wider text-white transition"
+              >
+                Yes, Delete
+              </button>
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                className="flex-1 bg-captain-black border border-white/10 hover:border-white py-2.5 rounded-lg text-xs font-extrabold uppercase tracking-wider text-white transition"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Toast message={toast} />
 

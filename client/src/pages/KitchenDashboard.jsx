@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
-import { collection, query, where, onSnapshot, doc, updateDoc, serverTimestamp } from "firebase/firestore";
-import { Clock, Eye, AlertTriangle, ShieldCheck, Volume2 } from "lucide-react";
+import { collection, query, where, onSnapshot, doc, updateDoc, deleteDoc, getDocs, serverTimestamp } from "firebase/firestore";
+import { Clock, Eye, AlertTriangle, ShieldCheck, Volume2, Trash2 } from "lucide-react";
 import { db } from "../firebase.js";
 import { useDocument } from "../hooks/useFirestore.js";
 
@@ -41,6 +41,7 @@ export default function KitchenDashboard() {
   const [tableOrders, setTableOrders] = useState([]);
   const [filter, setFilter] = useState("all"); // all, pending, preparing, ready
   const [activeConfirmation, setActiveConfirmation] = useState(null); // { order, nextStatus }
+  const [deleteTargetOrder, setDeleteTargetOrder] = useState(null); // order object to delete
   
   // Audio Autoplay unlock state
   const soundEnabledRef = useRef(false);
@@ -215,6 +216,17 @@ export default function KitchenDashboard() {
     }
   };
 
+  const handleDeleteOrder = async (order) => {
+    try {
+      const targetCollection = order._collection || (order.tableNumber ? "tableOrders" : "orders");
+      await deleteDoc(doc(db, targetCollection, order.id));
+      setDeleteTargetOrder(null);
+    } catch (err) {
+      console.error("Failed to delete order:", err);
+      alert("Error deleting order: " + err.message);
+    }
+  };
+
   // 1. PIN verification screen
   if (!isAuthenticated && config.kitchenPin) {
     return (
@@ -337,7 +349,7 @@ export default function KitchenDashboard() {
                     : "border-green-500/25 opacity-75"
                 }`}
               >
-                {/* Card Header with Source Badge */}
+                {/* Card Header with Source Badge & Trash Delete Button */}
                 <div className="bg-captain-black/80 px-4 py-3 border-b border-white/5 flex items-center justify-between">
                   <div>
                     {isDineIn ? (
@@ -353,8 +365,16 @@ export default function KitchenDashboard() {
                       #{order.orderNumber ? String(order.orderNumber).padStart(3, "0") : String(order.id).slice(-5)}
                     </div>
                   </div>
-                  <div className="text-right">
+                  <div className="flex items-center gap-2">
                     <TimeAgo createdAt={order.createdAt} />
+                    <button
+                      type="button"
+                      onClick={() => setDeleteTargetOrder(order)}
+                      className="p-1.5 rounded bg-red-950/40 border border-red-500/30 text-red-400 hover:bg-red-600 hover:text-white transition"
+                      title="Delete / Cancel Order"
+                    >
+                      <Trash2 size={13} />
+                    </button>
                   </div>
                 </div>
 
@@ -390,30 +410,40 @@ export default function KitchenDashboard() {
                 </div>
 
                 {/* Card Footer Button */}
-                <div className="p-4 bg-captain-black/30 border-t border-white/5">
-                  {order.status === "pending" && (
-                    <button
-                      type="button"
-                      onClick={() => setActiveConfirmation({ order, nextStatus: "preparing" })}
-                      className="w-full bg-red-600 hover:bg-red-700 py-3 rounded-lg text-xs font-extrabold uppercase tracking-wider text-white transition flex items-center justify-center gap-1.5"
-                    >
-                      <Clock size={14} /> Accept Order
-                    </button>
-                  )}
-                  {order.status === "preparing" && (
-                    <button
-                      type="button"
-                      onClick={() => setActiveConfirmation({ order, nextStatus: "ready" })}
-                      className="w-full bg-amber-500 hover:bg-amber-600 py-3 rounded-lg text-xs font-extrabold uppercase tracking-wider text-captain-black transition flex items-center justify-center gap-1.5"
-                    >
-                      <Clock size={14} /> Mark Ready
-                    </button>
-                  )}
-                  {order.status === "ready" && (
-                    <div className="w-full border border-green-500/35 bg-green-950/20 py-2.5 rounded-lg text-[10px] font-extrabold uppercase tracking-wider text-green-400 text-center">
-                      Ready to Serve 🍽️
-                    </div>
-                  )}
+                <div className="p-4 bg-captain-black/30 border-t border-white/5 flex gap-2">
+                  <div className="flex-1">
+                    {order.status === "pending" && (
+                      <button
+                        type="button"
+                        onClick={() => setActiveConfirmation({ order, nextStatus: "preparing" })}
+                        className="w-full bg-red-600 hover:bg-red-700 py-3 rounded-lg text-xs font-extrabold uppercase tracking-wider text-white transition flex items-center justify-center gap-1.5"
+                      >
+                        <Clock size={14} /> Accept Order
+                      </button>
+                    )}
+                    {order.status === "preparing" && (
+                      <button
+                        type="button"
+                        onClick={() => setActiveConfirmation({ order, nextStatus: "ready" })}
+                        className="w-full bg-amber-500 hover:bg-amber-600 py-3 rounded-lg text-xs font-extrabold uppercase tracking-wider text-captain-black transition flex items-center justify-center gap-1.5"
+                      >
+                        <Clock size={14} /> Mark Ready
+                      </button>
+                    )}
+                    {order.status === "ready" && (
+                      <div className="w-full border border-green-500/35 bg-green-950/20 py-2.5 rounded-lg text-[10px] font-extrabold uppercase tracking-wider text-green-400 text-center">
+                        Ready to Serve 🍽️
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setDeleteTargetOrder(order)}
+                    className="px-3 bg-red-950/40 border border-red-500/30 text-red-400 hover:bg-red-600 hover:text-white rounded-lg transition flex items-center justify-center"
+                    title="Delete Order"
+                  >
+                    <Trash2 size={16} />
+                  </button>
                 </div>
               </div>
             );
@@ -421,7 +451,7 @@ export default function KitchenDashboard() {
         </div>
       )}
 
-      {/* Confirmation Modal */}
+      {/* Confirmation Status Modal */}
       {activeConfirmation && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn">
           <div className="bg-captain-charcoal border border-captain-gold/30 rounded-xl max-w-sm w-full p-6 text-center space-y-6 shadow-gold-strong">
@@ -447,6 +477,42 @@ export default function KitchenDashboard() {
                 type="button"
                 onClick={() => setActiveConfirmation(null)}
                 className="flex-1 bg-captain-black border border-white/10 hover:border-captain-gold py-2.5 rounded-lg text-xs font-extrabold uppercase tracking-wider text-white transition"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {deleteTargetOrder && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4 z-[90] animate-fadeIn">
+          <div className="bg-captain-charcoal border border-red-500/40 rounded-xl max-w-sm w-full p-6 text-center space-y-6 shadow-red-500/10">
+            <div className="w-14 h-14 bg-red-500/10 border border-red-500/30 rounded-full flex items-center justify-center mx-auto">
+              <Trash2 className="text-red-400" size={24} />
+            </div>
+            <div>
+              <h4 className="font-bebas text-2xl text-white tracking-wide">Delete Order</h4>
+              <p className="text-white/60 text-xs mt-1">
+                Are you sure you want to permanently delete{" "}
+                <span className="text-red-400 font-bold">
+                  {deleteTargetOrder.tableNumber ? `Table ${deleteTargetOrder.tableNumber}` : `Delivery Order #${deleteTargetOrder.id}`}
+                </span>? This action cannot be undone.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => handleDeleteOrder(deleteTargetOrder)}
+                className="flex-1 bg-red-600 hover:bg-red-700 py-2.5 rounded-lg text-xs font-extrabold uppercase tracking-wider text-white transition"
+              >
+                Yes, Delete Order
+              </button>
+              <button
+                type="button"
+                onClick={() => setDeleteTargetOrder(null)}
+                className="flex-1 bg-captain-black border border-white/10 hover:border-white py-2.5 rounded-lg text-xs font-extrabold uppercase tracking-wider text-white transition"
               >
                 Cancel
               </button>
