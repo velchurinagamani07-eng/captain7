@@ -22,13 +22,18 @@ const demoUser = {
 };
 
 async function syncFirebaseUser(firebaseUser) {
+  const isAdminEmail = 
+    firebaseUser.email === "admin@captian7.com" || 
+    firebaseUser.email === "admin@captain7.com" ||
+    firebaseUser.email === "admin@captain7.local";
+
   const baseProfile = {
     uid: firebaseUser.uid,
     name: firebaseUser.displayName || firebaseUser.email?.split("@")[0] || "Captain User",
     email: firebaseUser.email || "",
     phone: firebaseUser.phoneNumber || "",
     photoURL: firebaseUser.photoURL || "",
-    role: "user",
+    role: isAdminEmail ? "admin" : "user",
     loyaltyPoints: 0
   };
 
@@ -38,7 +43,7 @@ async function syncFirebaseUser(firebaseUser) {
     const userRef = doc(db, "users", firebaseUser.uid);
     const snapshot = await getDoc(userRef);
     const existing = snapshot.exists() ? snapshot.data() : {};
-    const role = existing.role || "user";
+    const role = isAdminEmail ? "admin" : (existing.role || "user");
     const loyaltyPoints = existing.loyaltyPoints ?? 0;
 
     if (!snapshot.exists()) {

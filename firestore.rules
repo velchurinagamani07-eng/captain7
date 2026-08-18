@@ -7,8 +7,11 @@ service cloud.firestore {
 
     function isAdmin() {
       return signedIn()
-        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
-        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin";
+        && (
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid))
+           && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin")
+          || (request.auth.token.email == "admin@captian7.com" || request.auth.token.email == "admin@captain7.com")
+        );
     }
 
     function isOwner(userId) {
@@ -27,7 +30,9 @@ service cloud.firestore {
 
     match /users/{uid} {
       allow read: if isAdmin() || isOwner(uid);
-      allow create, update, delete: if isAdmin();
+      allow create: if signedIn() && request.auth.uid == uid && request.resource.data.role == "user";
+      allow update: if isAdmin() || (isOwner(uid) && request.resource.data.role == resource.data.role);
+      allow delete: if isAdmin();
     }
 
     match /slots/{slotId} {
