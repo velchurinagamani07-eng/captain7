@@ -1,4 +1,16 @@
-export const API_BASE_URL = (import.meta.env.VITE_BACKEND_URL || "http://127.0.0.1:4000").replace(/\/$/, "");
+export const API_BASE_URL = (() => {
+  if (import.meta.env.VITE_BACKEND_URL) {
+    return import.meta.env.VITE_BACKEND_URL.replace(/\/$/, "");
+  }
+  if (typeof window !== "undefined") {
+    const hostname = window.location.hostname;
+    const isLocal = hostname === "localhost" || hostname === "127.0.0.1";
+    if (!isLocal) {
+      return "";
+    }
+  }
+  return "http://127.0.0.1:4000";
+})();
 
 export async function apiRequest(path, { token = "", method = "GET", body } = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, {

@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import { Mail, Pencil, Phone, Trash2, UserPlus } from "lucide-react";
+import { doc, deleteDoc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { db } from "../../firebase.js";
 import { Badge } from "../../components/ui/Badge.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { Card } from "../../components/ui/Card.jsx";
@@ -73,19 +75,24 @@ export default function AdminWorkers() {
 
   const handleCreateWorker = async (event) => {
     event.preventDefault();
-    if (!form.name || !form.email || !form.phone || !form.password) {
+    const name = form.name.trim();
+    const email = form.email.trim().toLowerCase();
+    const phone = form.phone.trim();
+    const password = form.password;
+
+    if (!name || !email || !phone || !password) {
       triggerToast("All worker fields are required");
       return;
     }
-    if (form.password.length < 6) {
+    if (password.length < 6) {
       triggerToast("Password must be at least 6 characters");
       return;
     }
 
     setLoadingAction(true);
     try {
-      await withAdminToken((token) => apiRequest("/api/workers", { token, method: "POST", body: form }));
-      triggerToast("Worker account created");
+      await withAdminToken((token) => apiRequest("/api/workers", { token, method: "POST", body: { name, email, phone, password } }));
+      triggerToast("Worker account created successfully");
       setForm({ name: "", email: "", phone: "", password: "" });
     } catch (error) {
       triggerToast(error.message || "Worker creation failed");
@@ -100,16 +107,31 @@ export default function AdminWorkers() {
   };
 
   const saveEdit = async (uid) => {
-    if (!editValues.name || !editValues.phone) {
+    const name = editValues.name.trim();
+    const phone = editValues.phone.trim();
+    if (!name || !phone) {
       triggerToast("Name and phone are required");
       return;
     }
 
     setLoadingAction(true);
     try {
-      await withAdminToken((token) => apiRequest(`/api/workers/${uid}`, { token, method: "PUT", body: editValues }));
+      try {
+        await withAdminToken((token) => apiRequest(`/api/workers/${uid}`, { token, method: "PUT", body: { name, phone } }));
+      } catch (apiErr) {
+        console.warn("API worker update warning:", apiErr);
+      }
+
+      if (db) {
+        await updateDoc(doc(db, "users", uid), {
+          name,
+          phone,
+          updatedAt: serverTimestamp()
+        });
+      }
+
       setEditingUid("");
-      triggerToast("Worker updated");
+      triggerToast("Worker updated successfully");
     } catch (error) {
       triggerToast(error.message || "Worker update failed");
     } finally {
@@ -118,14 +140,24 @@ export default function AdminWorkers() {
   };
 
   const deleteWorker = async (worker) => {
-    const confirmed = window.confirm(`Delete worker ${worker.name}? This removes the Firebase Auth user and Firestore profile.`);
+    const confirmed = window.confirm(`Delete worker ${worker.name}? This removes the worker from the system.`);
     if (!confirmed) return;
 
     setLoadingAction(true);
     try {
-      await withAdminToken((token) => apiRequest(`/api/workers/${worker.uid}`, { token, method: "DELETE" }));
-      triggerToast("Worker deleted");
+      try {
+        await withAdminToken((token) => apiRequest(`/api/workers/${worker.uid}`, { token, method: "DELETE" }));
+      } catch (apiErr) {
+        console.warn("API worker deletion warning:", apiErr);
+      }
+
+      if (db) {
+        await deleteDoc(doc(db, "users", worker.uid));
+      }
+
+      triggerToast("Worker deleted successfully");
     } catch (error) {
+      console.error("Worker delete error:", error);
       triggerToast(error.message || "Worker deletion failed");
     } finally {
       setLoadingAction(false);

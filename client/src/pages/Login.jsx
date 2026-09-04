@@ -21,8 +21,15 @@ export default function Login() {
 
   const submit = async (values) => {
     try {
-      await login(values.email, values.password);
-      navigate(from, { replace: true });
+      const cleanEmail = (values.email || "").trim().toLowerCase();
+      const profile = await login(cleanEmail, values.password);
+      if (profile?.role === "admin") {
+        navigate("/admin", { replace: true });
+      } else if (profile?.role === "worker") {
+        navigate("/worker/dashboard", { replace: true });
+      } else {
+        navigate(from === "/admin" ? "/" : from, { replace: true });
+      }
     } catch (err) {
       if (err.code === "auth/invalid-credential" || err.code === "auth/wrong-password") {
         showToast("Wrong email or password");
@@ -36,8 +43,14 @@ export default function Login() {
 
   const handleGoogle = async () => {
     try {
-      await loginWithGoogle();
-      navigate(from, { replace: true });
+      const profile = await loginWithGoogle();
+      if (profile?.role === "admin") {
+        navigate("/admin", { replace: true });
+      } else if (profile?.role === "worker") {
+        navigate("/worker/dashboard", { replace: true });
+      } else {
+        navigate(from === "/admin" ? "/" : from, { replace: true });
+      }
     } catch (err) {
       showToast(err.message || "Google login failed");
     }
@@ -45,7 +58,7 @@ export default function Login() {
 
   const demo = () => {
     demoSignIn("admin");
-    navigate(from, { replace: true });
+    navigate("/admin", { replace: true });
   };
 
   return (

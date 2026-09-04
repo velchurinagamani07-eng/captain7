@@ -1,8 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
-import { auth, db } from "../firebase.js";
+import { useAuth } from "../hooks/useAuth.js";
 import { Button } from "../components/ui/Button.jsx";
 import { Card } from "../components/ui/Card.jsx";
 import { Toast } from "../components/ui/Toast.jsx";
@@ -14,6 +12,7 @@ export default function WorkerLogin() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState("");
+  const { login, logout, demoSignIn } = useAuth();
   const navigate = useNavigate();
 
   function triggerToast(msg) {
@@ -23,31 +22,31 @@ export default function WorkerLogin() {
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    if (!email || !password) {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !password) {
       triggerToast("Email and password are required");
       return;
     }
 
     setLoading(true);
     try {
-      // 1. Sign in with Firebase Auth
-      const userCredential = await signInWithEmailAndPassword(auth, email, password);
-      const uid = userCredential.user.uid;
+      const profile = await login(cleanEmail, password);
 
-      // 2. Fetch user document to check role
-      const userDocRef = doc(db, "users", uid);
-      const userDoc = await getDoc(userDocRef);
-
-      if (userDoc.exists() && userDoc.data().role === "worker") {
+      if (profile && (profile.role === "worker" || profile.role === "admin")) {
         triggerToast("Login successful!");
-        navigate("/worker/dashboard");
+        navigate("/worker/dashboard", { replace: true });
       } else {
-        // Log out because this user is not a worker
-        await auth.signOut();
-        triggerToast("Access Denied: Only workers can log in here.");
+        await logout();
+        triggerToast("Access Denied: This account is not registered as a worker.");
       }
     } catch (err) {
-      triggerToast(err.message || "Authentication failed");
+      if (err.code === "auth/invalid-credential" || err.code === "auth/wrong-password") {
+        triggerToast("Invalid email or password");
+      } else if (err.code === "auth/user-not-found") {
+        triggerToast("No worker account found with this email");
+      } else {
+        triggerToast(err.message || "Authentication failed");
+      }
     } finally {
       setLoading(false);
     }

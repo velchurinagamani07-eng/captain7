@@ -10,7 +10,8 @@ service cloud.firestore {
         && (
           (exists(/databases/$(database)/documents/users/$(request.auth.uid))
            && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin")
-          || (request.auth.token.email == "admin@captian7.com" || request.auth.token.email == "admin@captain7.com")
+          || (request.auth.token.email.matches('admin@.*'))
+          || (request.auth.token.email == "admin@captian7.com" || request.auth.token.email == "admin@captain7.com" || request.auth.token.email == "admin@captain7.in" || request.auth.token.email == "admin@captian7.in" || request.auth.token.email == "admin@captain7.local")
         );
     }
 

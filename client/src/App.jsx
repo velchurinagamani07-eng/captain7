@@ -195,7 +195,7 @@ function AdminRoute() {
   const { user, loading } = useAuth();
   if (loading) return <LoadingScreen active />;
   if (!user) return <Navigate to="/admin/login" replace />;
-  if (user.role !== "admin") return <Navigate to="/" replace />;
+  if (user.role !== "admin") return <Navigate to="/admin/login" replace />;
   return <Outlet />;
 }
 
@@ -203,6 +203,6 @@ function WorkerRoute() {
   const { user, loading } = useAuth();
   if (loading) return <LoadingScreen active />;
   if (!user) return <Navigate to="/worker/login" replace />;
-  if (user.role !== "worker") return <Navigate to="/worker/login" replace />;
+  if (user.role !== "worker" && user.role !== "admin") return <Navigate to="/worker/login" replace />;
   return <Outlet />;
 }

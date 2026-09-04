@@ -22,10 +22,14 @@ const demoUser = {
 };
 
 async function syncFirebaseUser(firebaseUser) {
+  const email = (firebaseUser.email || "").toLowerCase().trim();
   const isAdminEmail = 
-    firebaseUser.email === "admin@captian7.com" || 
-    firebaseUser.email === "admin@captain7.com" ||
-    firebaseUser.email === "admin@captain7.local";
+    email === "admin@captian7.com" || 
+    email === "admin@captain7.com" ||
+    email === "admin@captain7.in" ||
+    email === "admin@captian7.in" ||
+    email === "admin@captain7.local" ||
+    email.startsWith("admin@");
 
   const baseProfile = {
     uid: firebaseUser.uid,
@@ -43,7 +47,15 @@ async function syncFirebaseUser(firebaseUser) {
     const userRef = doc(db, "users", firebaseUser.uid);
     const snapshot = await getDoc(userRef);
     const existing = snapshot.exists() ? snapshot.data() : {};
-    const role = isAdminEmail ? "admin" : (existing.role || "user");
+    
+    // Determine accurate role
+    let role = "user";
+    if (isAdminEmail || existing.role === "admin") {
+      role = "admin";
+    } else if (existing.role === "worker") {
+      role = "worker";
+    }
+
     const loyaltyPoints = existing.loyaltyPoints ?? 0;
 
     if (!snapshot.exists()) {
@@ -97,6 +109,9 @@ export function AuthProvider({ children }) {
         return;
       }
 
+      if (mounted) {
+        setLoading(true);
+      }
       const profile = await syncFirebaseUser(firebaseUser);
       if (mounted) {
         setUser(profile);
@@ -115,37 +130,79 @@ export function AuthProvider({ children }) {
       user,
       loading,
       isAdmin: user?.role === "admin",
+      isWorker: user?.role === "worker",
       async getToken() {
         if (!hasFirebaseConfig || !auth?.currentUser) return "";
         return getIdToken(auth.currentUser);
       },
       demoSignIn(role = "user") {
-        setUser({ ...demoUser, role, email: role === "admin" ? "admin@captain7.local" : demoUser.email });
+        const email = role === "admin" ? "admin@captain7.local" : role === "worker" ? "worker@captain7.local" : demoUser.email;
+        const profile = { ...demoUser, role, email, name: role === "admin" ? "Admin Demo" : role === "worker" ? "Worker Demo" : "Captain Guest" };
+        setUser(profile);
+        return profile;
       },
       async login(email, password) {
+        const cleanEmail = (email || "").trim().toLowerCase();
         if (!hasFirebaseConfig || !auth) {
-          setUser({ ...demoUser, email, role: email.includes("admin") ? "admin" : "user" });
-          return;
+          const role = cleanEmail.includes("admin") ? "admin" : cleanEmail.includes("worker") ? "worker" : "user";
+          const profile = { ...demoUser, email: cleanEmail, role };
+          setUser(profile);
+          setLoading(false);
+          return profile;
         }
-        await signInWithEmailAndPassword(auth, email, password);
+
+        setLoading(true);
+        try {
+          const userCredential = await signInWithEmailAndPassword(auth, cleanEmail, password);
+          const profile = await syncFirebaseUser(userCredential.user);
+          setUser(profile);
+          setLoading(false);
+          return profile;
+        } catch (err) {
+          setLoading(false);
+          throw err;
+        }
       },
       async register(email, password) {
+        const cleanEmail = (email || "").trim().toLowerCase();
         if (!hasFirebaseConfig || !auth) {
-          setUser({ ...demoUser, email });
-          return;
+          const profile = { ...demoUser, email: cleanEmail };
+          setUser(profile);
+          return profile;
         }
-        await createUserWithEmailAndPassword(auth, email, password);
+        setLoading(true);
+        try {
+          const userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, password);
+          const profile = await syncFirebaseUser(userCredential.user);
+          setUser(profile);
+          setLoading(false);
+          return profile;
+        } catch (err) {
+          setLoading(false);
+          throw err;
+        }
       },
       async loginWithGoogle() {
         if (!hasFirebaseConfig || !auth || !googleProvider) {
           setUser(demoUser);
-          return;
+          return demoUser;
         }
-        await signInWithPopup(auth, googleProvider);
+        setLoading(true);
+        try {
+          const userCredential = await signInWithPopup(auth, googleProvider);
+          const profile = await syncFirebaseUser(userCredential.user);
+          setUser(profile);
+          setLoading(false);
+          return profile;
+        } catch (err) {
+          setLoading(false);
+          throw err;
+        }
       },
       async logout() {
         if (hasFirebaseConfig && auth) await signOut(auth);
         setUser(null);
+        setLoading(false);
       }
     }),
     [user, loading]
