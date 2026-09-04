@@ -31,7 +31,7 @@ service cloud.firestore {
 
     match /users/{uid} {
       allow read: if isAdmin() || isOwner(uid);
-      allow create: if signedIn() && request.auth.uid == uid && request.resource.data.role == "user";
+      allow create: if isAdmin() || (signedIn() && request.auth.uid == uid && request.resource.data.role == "user");
       allow update: if isAdmin() || (isOwner(uid) && request.resource.data.role == resource.data.role);
       allow delete: if isAdmin();
     }

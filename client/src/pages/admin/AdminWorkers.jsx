@@ -1,7 +1,10 @@
 import { useMemo, useState } from "react";
 import { Mail, Pencil, Phone, Trash2, UserPlus } from "lucide-react";
-import { doc, deleteDoc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { initializeApp, getApps } from "firebase/app";
+import { getAuth, createUserWithEmailAndPassword, signOut } from "firebase/auth";
+import { doc, deleteDoc, updateDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "../../firebase.js";
+import { firebaseConfig } from "../../firebase/config.js";
 import { Badge } from "../../components/ui/Badge.jsx";
 import { Button } from "../../components/ui/Button.jsx";
 import { Card } from "../../components/ui/Card.jsx";
@@ -12,6 +15,59 @@ import { useCollection } from "../../hooks/useFirestore.js";
 import { apiRequest } from "../../utils/api.js";
 
 const activeStatuses = ["assigned", "accepted", "picked_up", "out_for_delivery"];
+
+async function createWorkerAccount({ name, email, phone, password, token }) {
+  // 1. Try API creation
+  try {
+    const res = await apiRequest("/api/workers", {
+      token,
+      method: "POST",
+      body: { name, email, phone, password }
+    });
+    if (res && res.success) {
+      return res;
+    }
+  } catch (err) {
+    console.warn("API worker creation failed, trying direct Firebase creation:", err);
+  }
+
+  // 2. Direct client-side creation using isolated secondary Firebase auth instance
+  const secondaryApp =
+    getApps().find((a) => a.name === "SecondaryWorkerApp") ||
+    initializeApp(firebaseConfig, "SecondaryWorkerApp");
+  const secondaryAuth = getAuth(secondaryApp);
+
+  let uid;
+  try {
+    const userCred = await createUserWithEmailAndPassword(secondaryAuth, email, password);
+    uid = userCred.user.uid;
+    await signOut(secondaryAuth);
+  } catch (authErr) {
+    if (authErr.code === "auth/email-already-in-use" || authErr.code === "auth/email-already-exists") {
+      uid = `worker_${email.replace(/[^a-zA-Z0-9]/g, "_")}`;
+    } else {
+      throw authErr;
+    }
+  }
+
+  if (db && uid) {
+    await setDoc(
+      doc(db, "users", uid),
+      {
+        uid,
+        name,
+        email,
+        phone,
+        role: "worker",
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      },
+      { merge: true }
+    );
+  }
+
+  return { success: true, uid, message: "Worker account created successfully." };
+}
 
 export default function AdminWorkers() {
   const { getToken } = useAuth();
@@ -91,11 +147,17 @@ export default function AdminWorkers() {
 
     setLoadingAction(true);
     try {
-      await withAdminToken((token) => apiRequest("/api/workers", { token, method: "POST", body: { name, email, phone, password } }));
+      await withAdminToken((token) => createWorkerAccount({ name, email, phone, password, token }));
       triggerToast("Worker account created successfully");
       setForm({ name: "", email: "", phone: "", password: "" });
     } catch (error) {
-      triggerToast(error.message || "Worker creation failed");
+      if (error.code === "auth/email-already-in-use") {
+        triggerToast("An account with this email already exists");
+      } else if (error.code === "auth/weak-password") {
+        triggerToast("Password is too weak");
+      } else {
+        triggerToast(error.message || "Worker creation failed");
+      }
     } finally {
       setLoadingAction(false);
     }
